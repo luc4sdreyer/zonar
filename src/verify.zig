@@ -15,9 +15,9 @@ const resolver = @import("resolver.zig");
 const integrity = @import("integrity.zig");
 const Finding = integrity.Finding;
 
-/// Verify every uniquely-hashed remote dependency in `tree`, appending findings
-/// to `out`. Only mismatches and verification failures produce findings;
-/// successful matches are silent.
+/// Verify every distinct (url, hash) remote dependency in `tree`, appending
+/// findings to `out`. Only mismatches and verification failures produce
+/// findings; successful matches are silent.
 pub fn verifyTree(
     arena: Allocator,
     io: Io,
@@ -37,8 +37,12 @@ fn verifyNode(
 ) Allocator.Error!void {
     if (node.url) |url| {
         if (node.hash) |declared| {
-            if (!seen.contains(declared)) {
-                try seen.put(arena, declared, {});
+            // Deduplicate by the (url, hash) pair, not by hash alone: two deps
+            // can declare the same hash from different urls, and we must fetch
+            // each url to catch a mirror serving different bytes under that hash.
+            const key = try std.fmt.allocPrint(arena, "{s}\x00{s}", .{ url, declared });
+            if (!seen.contains(key)) {
+                try seen.put(arena, key, {});
                 if (try verifyOne(arena, io, node.name, url, declared)) |f| {
                     try out.append(arena, f);
                 }
