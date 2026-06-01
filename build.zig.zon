@@ -1,0 +1,17 @@
+.{
+    .name = .zonar,
+    .version = "0.1.0",
+    // Stable random identity for this package. Never changes once published.
+    .fingerprint = 0x96a144fa1bcef02a,
+    .minimum_zig_version = "0.16.0",
+    // A supply-chain auditor intentionally has zero external dependencies:
+    // every transitive dependency is attack surface, including our own.
+    .dependencies = .{},
+    .paths = .{
+        "build.zig",
+        "build.zig.zon",
+        "src",
+        "README.md",
+        "LICENSE",
+    },
+}
