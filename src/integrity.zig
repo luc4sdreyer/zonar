@@ -48,6 +48,18 @@ pub const Code = enum {
     /// `--verify`: the recomputed content hash did not match the declared hash.
     hash_mismatch,
 
+    // Capability codes (emitted by the `--scan` build.zig scanner). These are a
+    // report of what a build script *can do*, never a verdict; they are graded
+    // below `high` so they never gate CI.
+    /// The build script can execute external processes.
+    cap_exec,
+    /// The build script can access the network.
+    cap_network,
+    /// The build script reads environment variables.
+    cap_env,
+    /// The build script touches the filesystem outside the build graph.
+    cap_filesystem,
+
     pub fn slug(self: Code) []const u8 {
         return @tagName(self);
     }
@@ -58,6 +70,9 @@ pub const Finding = struct {
     severity: Severity,
     code: Code,
     message: []const u8,
+    /// Optional source location, e.g. "build.zig:42", for findings tied to a
+    /// specific line (the capability scanner sets this).
+    location: ?[]const u8 = null,
 };
 
 /// Walk `tree` and append findings to `out`. Strings are allocated with `arena`.

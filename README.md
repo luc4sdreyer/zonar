@@ -69,6 +69,32 @@ Summary: 0 critical, 2 high, 1 low, 0 info
 zonar exits non-zero when any finding is **high** severity or above, so it works
 as a CI gate.
 
+### Scanning build scripts (`--scan`)
+
+Every dependency's `build.zig` runs as unsandboxed code at configure time. With
+`--scan`, zonar parses each one with the compiler's own AST (`std.zig.Ast`) and
+reports what the script is *capable of* — executing processes, opening network
+connections, reading the environment or filesystem:
+
+```
+zonar audit --scan — demo 0.1.0
+└─ evil 1.0.0  ✔ pinned
+
+Findings:
+  [low] evil (build.zig:3): process execution: b.addSystemCommand
+  [low] evil (build.zig:5): network access: std.http
+  [info] evil (build.zig:7): environment read: std.posix.getenv
+
+Summary: 0 critical, 0 high, 2 low, 0 info
+```
+
+Capabilities are a **report, not a verdict**. They are graded below `high` and
+never affect the exit code: a build script using `addSystemCommand` is suspicious
+to a human, but completely normal in many real projects. The scan is also
+intentionally shallow — it matches qualified names in the AST and cannot follow
+aliasing (`const p = std.process;`) or reflection, so treat it as "here is what to
+review," never proof of anything.
+
 ## What it checks
 
 | Finding | Severity | Meaning |
@@ -77,6 +103,10 @@ as a CI gate.
 | `mutable_ref` | low | A git dependency whose committish isn't an immutable commit SHA. The hash still pins the content, but the URL provenance is mutable. |
 | `not_in_cache` | info | The package isn't fetched yet, so it couldn't be inspected. |
 | `hash_mismatch` | critical | `--verify` only: the re-fetched content's hash doesn't match the declared hash. |
+| `cap_exec` | low | `--scan` only: the build script can execute external processes. |
+| `cap_network` | low | `--scan` only: the build script can access the network. |
+| `cap_env` | info | `--scan` only: the build script reads environment variables. |
+| `cap_filesystem` | info | `--scan` only: the build script touches the filesystem outside the build graph. |
 
 A note on honesty: these are static signals about *what to review*, not verdicts.
 A mutable git ref isn't malware; an unpinned URL isn't an attack. zonar points at
@@ -87,6 +117,7 @@ the weak spots and leaves the judgement to you.
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit the audit as JSON (`{ root, findings, summary }`) instead of a tree. |
+| `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
 | `--verify` | Re-fetch remote dependencies with `zig fetch` and compare hashes. |
 | `--cache <dir>` | Override the global cache directory (defaults to `ZIG_GLOBAL_CACHE_DIR`, then `zig env`). |
 | `-h`, `--help` | Show help. |
@@ -104,11 +135,11 @@ thin layer over it.
 
 ## Roadmap
 
-Milestone 1 (this release) covers tree resolution and integrity checks. Planned:
+Done: tree resolution, integrity checks, and the `--scan` `build.zig` capability
+scanner. Planned:
 
-- **`build.zig` capability scanner** — use `std.zig.Ast` to flag dependency build
-  scripts that exec processes, touch the network, read the environment, or embed
-  binary blobs.
+- **More capabilities** for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
+  string literals, and following simple aliasing.
 - **SBOM export** in CycloneDX / SPDX.
 - A native re-implementation of Zig's content hashing (today `--verify` shells
   out to `zig fetch`).

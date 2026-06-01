@@ -64,7 +64,11 @@ pub fn renderText(
     } else {
         try out.writeAll("Findings:\n");
         for (findings) |f| {
-            try out.print("  [{s}] {s}: {s}\n", .{ f.severity.label(), f.package, f.message });
+            if (f.location) |loc| {
+                try out.print("  [{s}] {s} ({s}): {s}\n", .{ f.severity.label(), f.package, loc, f.message });
+            } else {
+                try out.print("  [{s}] {s}: {s}\n", .{ f.severity.label(), f.package, f.message });
+            }
         }
     }
 
@@ -146,6 +150,7 @@ pub fn renderJson(
         try jsonString(out, f.package);
         try out.print(",\"severity\":\"{s}\",\"code\":\"{s}\",\"message\":", .{ f.severity.label(), f.code.slug() });
         try jsonString(out, f.message);
+        try jsonOptionalField(out, "location", f.location);
         try out.writeAll("}");
     }
     const c = Counts.tally(findings);
