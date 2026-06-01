@@ -97,9 +97,13 @@ fn scanPackage(
     out: *std.ArrayList(Finding),
 ) Allocator.Error!void {
     const path = try std.fs.path.join(arena, &.{ dir, "build.zig" });
-    const source = readSource(arena, io, path) catch {
-        // No build.zig (some packages are data-only) or unreadable: nothing to scan.
-        return;
+    const source = readSource(arena, io, path) catch |err| switch (err) {
+        // Out of memory must not be masked as a clean scan: propagate it so the
+        // audit fails loudly rather than silently omitting a dependency.
+        error.OutOfMemory => return error.OutOfMemory,
+        // No build.zig (some packages are data-only) or otherwise unreadable:
+        // nothing to scan here.
+        else => return,
     };
     try scanSource(arena, package, source, out);
 }
