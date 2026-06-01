@@ -15,6 +15,7 @@ pub const cache = @import("cache.zig");
 pub const manifest = @import("manifest.zig");
 pub const resolver = @import("resolver.zig");
 pub const integrity = @import("integrity.zig");
+pub const scanner = @import("scanner.zig");
 pub const verify = @import("verify.zig");
 pub const report = @import("report.zig");
 
@@ -33,6 +34,7 @@ test {
     _ = manifest;
     _ = resolver;
     _ = integrity;
+    _ = scanner;
     _ = verify;
     _ = report;
 }

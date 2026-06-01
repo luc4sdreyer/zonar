@@ -36,6 +36,10 @@ pub const Node = struct {
     /// True if this package was already visited elsewhere in the tree; its
     /// children are elided to avoid repetition and cycles.
     duplicate: bool = false,
+    /// The package's own directory on disk (where its build.zig lives), when it
+    /// could be located. Used by the `--scan` capability scanner. Internal: not
+    /// emitted in JSON.
+    dir: ?[]const u8 = null,
     children: []const Node = &.{},
 };
 
@@ -78,6 +82,7 @@ pub fn resolve(
         .version = m.version,
         .kind = .root,
         .status = .ok,
+        .dir = base_dir,
     };
     root.children = try expandDeps(&ctx, m.dependencies, base_dir);
     return .{ .root = root };
@@ -122,6 +127,9 @@ fn expandDep(ctx: *Context, dep: manifest.Dependency, base_dir: []const u8) Reso
         node.status = .unlocatable;
         return node;
     }
+
+    // `child_base` is this package's own directory; record it for the scanner.
+    node.dir = child_base;
 
     // Dedup / cycle guard.
     if (identity) |id| {

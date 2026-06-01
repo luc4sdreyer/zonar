@@ -14,6 +14,7 @@ const usage =
     \\
     \\Options:
     \\  --json              Emit the audit as JSON instead of a tree
+    \\  --scan              Scan each dependency's build.zig for risky capabilities
     \\  --verify            Re-fetch remote deps and verify content hashes (needs network)
     \\  --cache <dir>       Override the global package cache directory
     \\  -h, --help          Show this help
@@ -26,6 +27,7 @@ const usage =
 const Options = struct {
     path: []const u8 = "build.zig.zon",
     json: bool = false,
+    scan: bool = false,
     verify: bool = false,
     cache_override: ?[]const u8 = null,
 };
@@ -87,6 +89,8 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
         if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) return .version;
         if (std.mem.eql(u8, arg, "--json")) {
             opts.json = true;
+        } else if (std.mem.eql(u8, arg, "--scan")) {
+            opts.scan = true;
         } else if (std.mem.eql(u8, arg, "--verify")) {
             opts.verify = true;
         } else if (std.mem.eql(u8, arg, "--cache")) {
@@ -121,6 +125,9 @@ fn runAudit(
 
     var findings: std.ArrayList(zonar.Finding) = .empty;
     try zonar.integrity.check(arena, tree, &findings);
+    if (opts.scan) {
+        try zonar.scanner.scanTree(arena, io, tree, &findings);
+    }
     if (opts.verify) {
         try zonar.verify.verifyTree(arena, io, tree, &findings);
     }
