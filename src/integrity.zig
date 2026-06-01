@@ -59,6 +59,9 @@ pub const Code = enum {
     cap_env,
     /// The build script touches the filesystem outside the build graph.
     cap_filesystem,
+    /// `--scan`: a build.zig was present but could not be parsed, so it was not
+    /// scanned (not a capability — an inspection gap).
+    unscannable,
 
     pub fn slug(self: Code) []const u8 {
         return @tagName(self);

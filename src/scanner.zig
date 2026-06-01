@@ -56,9 +56,10 @@ const table = [_]Pattern{
     .{ .needle = "realpathAlloc", .code = .cap_filesystem, .severity = .info, .label = "filesystem access" },
 };
 
-/// Scan every cached package in `tree`, appending capability findings to `out`.
-/// Packages are scanned once each (deduped by directory); duplicates and
-/// packages not present on disk are skipped.
+/// Scan every cached *dependency* in `tree`, appending capability findings to
+/// `out`. The first-party root package is intentionally skipped — `--scan` audits
+/// third-party build scripts, not your own. Packages are scanned once each
+/// (deduped by directory); duplicates and packages not present on disk are skipped.
 pub fn scanTree(
     arena: Allocator,
     io: Io,
@@ -66,7 +67,7 @@ pub fn scanTree(
     out: *std.ArrayList(Finding),
 ) Allocator.Error!void {
     var seen: std.StringHashMapUnmanaged(void) = .empty;
-    try scanNode(arena, io, tree.root, out, &seen);
+    for (tree.root.children) |child| try scanNode(arena, io, child, out, &seen);
 }
 
 fn scanNode(
@@ -119,7 +120,7 @@ pub fn scanSource(
         try out.append(arena, .{
             .package = package,
             .severity = .info,
-            .code = .cap_filesystem,
+            .code = .unscannable,
             .message = try std.fmt.allocPrint(arena, "build.zig could not be parsed; not scanned", .{}),
         });
         return;
@@ -275,9 +276,10 @@ test "unparseable build.zig degrades gracefully" {
 
     var out: std.ArrayList(Finding) = .empty;
     try scanSource(arena, "broken", "pub fn build(b: *std.Build) void { this is not zig", &out);
-    // One info note, no crash.
+    // One info note coded as unscannable (not a capability), no crash.
     try testing.expectEqual(@as(usize, 1), out.items.len);
     try testing.expectEqual(Severity.info, out.items[0].severity);
+    try testing.expectEqual(Code.unscannable, out.items[0].code);
 }
 
 test "scanTree reads and scans a cached package's build.zig" {
@@ -321,6 +323,17 @@ test "scanTree reads and scans a cached package's build.zig" {
         \\        .evil = .{ .url = "https://x/e.tar.gz", .hash = "evil-1.0.0-AAAAAAAAAAAA" },
         \\    },
         \\    .paths = .{""},
+        \\}
+        ,
+    });
+    // The root's own build.zig also uses a capability — it must NOT be reported,
+    // because --scan audits dependencies, not first-party code.
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "proj/build.zig",
+        .data =
+        \\const std = @import("std");
+        \\pub fn build(b: *std.Build) void {
+        \\    _ = b.addSystemCommand(&.{"make"});
         \\}
         ,
     });

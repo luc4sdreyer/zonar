@@ -107,6 +107,7 @@ review," never proof of anything.
 | `cap_network` | low | `--scan` only: the build script can access the network. |
 | `cap_env` | info | `--scan` only: the build script reads environment variables. |
 | `cap_filesystem` | info | `--scan` only: the build script touches the filesystem outside the build graph. |
+| `unscannable` | info | `--scan` only: a dependency's `build.zig` couldn't be parsed, so it wasn't scanned. |
 
 A note on honesty: these are static signals about *what to review*, not verdicts.
 A mutable git ref isn't malware; an unpinned URL isn't an attack. zonar points at
