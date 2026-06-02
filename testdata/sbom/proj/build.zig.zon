@@ -1,0 +1,13 @@
+.{
+    .name = .demo,
+    .version = "0.1.0",
+    .dependencies = .{
+        // Resolved from the fixture cache below; its build.zig is scanned.
+        .pinned = .{ .url = "https://example.com/dep.tar.gz", .hash = "dep-1.0.0-AAAAAAAAAAAA" },
+        // Unpinned (url, no hash) -> a high integrity finding.
+        .unpinned = .{ .url = "https://example.com/loose.tar.gz" },
+        // Git dependency on a mutable ref -> a low integrity finding.
+        .gitdep = .{ .url = "git+https://github.com/u/r.git#main", .hash = "r-2.0.0-BBBBBBBBBBBB" },
+    },
+    .paths = .{""},
+}

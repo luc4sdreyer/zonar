@@ -2,7 +2,7 @@ const std = @import("std");
 const Io = std.Io;
 const zonar = @import("zonar");
 
-const version = "0.1.0";
+const version = zonar.version;
 
 const usage =
     \\zonar — a supply-chain auditor for the Zig package manager

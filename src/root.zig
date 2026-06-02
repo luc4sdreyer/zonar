@@ -9,6 +9,9 @@
 //! This is the library surface; the `zonar` binary (src/main.zig) is a thin CLI
 //! over these modules.
 
+/// The zonar version, injected by build.zig from build.zig.zon (or -Dversion).
+pub const version = @import("build_options").version;
+
 pub const cache = @import("cache.zig");
 pub const manifest = @import("manifest.zig");
 pub const resolver = @import("resolver.zig");

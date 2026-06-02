@@ -48,9 +48,6 @@ jobs:
   lint:
     name: zlint
     runs-on: ubuntu-latest
-    # Non-blocking for now: zlint is a separate analyzer and may flag or mis-parse
-    # newer 0.16 constructs. Promote to required once it is proven clean here.
-    continue-on-error: true
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
       - name: Install zlint (pinned + checksum-verified)
@@ -62,3 +59,32 @@ jobs:
           chmod +x zlint
       - name: Run zlint
         run: ./zlint
+
+  sbom:
+    name: SBOM validation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.16.0
+      - run: zig build
+      - name: Generate SBOMs from a multi-dependency fixture
+        # The fixture exercises components, dependency edges, and findings-as-
+        # properties (a zero-dep SBOM would only cover the document skeleton).
+        # `--fail-on=never` so the deliberate findings don't make the step exit
+        # non-zero before the SBOM is written.
+        run: |
+          args="testdata/sbom/proj/build.zig.zon --cache testdata/sbom/cache --scan --fail-on=never"
+          ./zig-out/bin/zonar audit $args --sbom=cyclonedx > bom.cdx.json
+          ./zig-out/bin/zonar audit $args --sbom=spdx > bom.spdx.json
+      - name: Validate CycloneDX (pinned + checksum-verified)
+        run: |
+          curl -fsSL -o cyclonedx \
+            https://github.com/CycloneDX/cyclonedx-cli/releases/download/v0.32.0/cyclonedx-linux-x64
+          echo "454879e6a4a405c8a13bff49b8982adcb0596f3019b26b0811c66e4d7f0783e1  cyclonedx" \
+            | sha256sum -c -
+          chmod +x cyclonedx
+          ./cyclonedx validate --input-file bom.cdx.json --input-format json --fail-on-errors
+      - name: Validate SPDX (pinned)
+        run: pipx run --spec 'spdx-tools==0.8.5' pyspdxtools -i bom.spdx.json

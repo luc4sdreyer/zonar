@@ -1,6 +1,6 @@
 .{
     .name = .zonar,
-    .version = "0.1.0",
+    .version = "0.2.0",
     // Stable random identity for this package. Never changes once published.
     .fingerprint = 0x96a144fa1bcef02a,
     .minimum_zig_version = "0.16.0",
@@ -12,6 +12,7 @@
         "build.zig.zon",
         "src",
         "README.md",
+        "CHANGELOG.md",
         "LICENSE",
     },
 }

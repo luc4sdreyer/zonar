@@ -29,17 +29,24 @@ Server, for completion and inline diagnostics.
 
 ## Releases (maintainers)
 
-Releases are cut by pushing a tag:
+Checklist for cutting `vX.Y.Z`:
 
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
+1. Bump `.version` in `build.zig.zon` to `X.Y.Z` (the single source of truth; the
+   tag must match it, and `zonar --version` is derived from it).
+2. Move the `[Unreleased]` notes in `CHANGELOG.md` under a new `[X.Y.Z]` heading.
+3. Open a PR, get green CI, and merge.
+4. Tag the merge commit and push:
+   ```sh
+   git tag -a vX.Y.Z -m "zonar X.Y.Z"
+   git push origin vX.Y.Z
+   ```
+5. Confirm the release assets appear and the signature verifies (below).
 
 `.github/workflows/release.yml` cross-compiles every target from a single Linux
-runner, signs each archive with [minisign](https://jedisct1.github.io/minisign/),
-and publishes a GitHub release with the archives, their `.minisig` signatures, a
-`SHA256SUMS` file, and the public key.
+runner (passing `-Dversion` from the tag), signs each archive plus the
+`zig fetch` source tarball with [minisign](https://jedisct1.github.io/minisign/),
+and publishes a GitHub release with the archives, the source tarball, their
+`.minisig` signatures, a `SHA256SUMS` file, and the public key.
 
 ### Signing key setup (one time)
 

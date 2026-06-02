@@ -17,3 +17,13 @@
 *.tar binary
 *.minisig binary
 *.pub binary
+
+# Keep the `git archive` source tarball (for `zig fetch`) lean. These are not
+# in the package `paths`, so excluding them does not change the package hash.
+/.github export-ignore
+/.gitattributes export-ignore
+/.gitignore export-ignore
+/CONTRIBUTING.md export-ignore
+/tasks export-ignore
+/testdata export-ignore
+/minisign.pub export-ignore
