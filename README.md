@@ -182,8 +182,11 @@ Notes specific to Zig:
   CycloneDX `bom-ref`. It is *not* a standard SHA-256 digest, so it is carried as a
   `zonar:zig-hash` property (CycloneDX) or the package comment (SPDX) rather than
   masquerading in a `hashes`/`checksums` field.
-- Components use a `pkg:generic/<name>@<version>?download_url=...` package URL, since
-  Zig has no registered PURL type.
+- Zig has no registered PURL type, so components map to the closest resolvable
+  identifier. A github-hosted dependency becomes `pkg:github/<owner>/<repo>@<ref>`
+  (the `ref` is the pinned commit or tag, taken from the actual download URL, so a
+  fork or mirror is reported as where the bytes really came from). Everything else
+  falls back to `pkg:generic/<name>@<version>?download_url=...`.
 - Any findings from the same run ride along. An `unpinned` dependency, for example,
   becomes a `zonar:finding:unpinned` property, so the SBOM flags its own weak spots.
 - CycloneDX output is reproducible (no embedded timestamp or serial number), so it

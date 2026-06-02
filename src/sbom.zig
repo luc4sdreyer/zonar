@@ -36,7 +36,8 @@ const Component = struct {
     url: ?[]const u8,
     hash: ?[]const u8,
     path: ?[]const u8,
-    /// Package URL, e.g. `pkg:generic/foo@1.2.3?download_url=...`.
+    /// Package URL: `pkg:github/<owner>/<repo>@<ref>` for github-hosted deps,
+    /// else `pkg:generic/<name>@<version>?download_url=...`.
     purl: []const u8,
     /// CycloneDX bom-ref: the content hash when known, else the purl, made
     /// unique across the BOM.
@@ -147,7 +148,81 @@ fn percentEncode(arena: Allocator, s: []const u8) ![]const u8 {
     return out.items;
 }
 
+/// Strip a known archive extension from a github tarball/zip path segment, so
+/// `<ref>.tar.gz` and `<ref>.zip` both yield `<ref>`.
+fn stripArchiveExt(s: []const u8) []const u8 {
+    const exts = [_][]const u8{ ".tar.gz", ".tgz", ".tar.zst", ".tar.xz", ".tar.bz2", ".tar", ".zip" };
+    for (exts) |e| {
+        if (std.mem.endsWith(u8, s, e)) return s[0 .. s.len - e.len];
+    }
+    return s;
+}
+
+/// Lowercase ASCII into a fresh arena buffer. The PURL github type defines the
+/// namespace and name as case-insensitive and canonicalized to lowercase.
+fn asciiLowerDupe(arena: Allocator, s: []const u8) ![]const u8 {
+    const out = try arena.alloc(u8, s.len);
+    for (s, 0..) |c, i| out[i] = std.ascii.toLower(c);
+    return out;
+}
+
+/// If `node.url` is a recognizable github.com source, return a canonical
+/// `pkg:github/<owner>/<repo>@<ref>` PURL: owner and repo lowercased per the
+/// PURL github type, `ref` a commit or tag identifying the exact source. That
+/// is the identifier cross-ecosystem tooling can resolve, unlike the
+/// `pkg:generic` fallback. Returns null for non-github or unparseable urls.
+fn githubPurl(arena: Allocator, node: resolver.Node) !?[]const u8 {
+    var u = node.url orelse return null;
+    if (std.mem.startsWith(u8, u, "git+")) u = u["git+".len..];
+    const prefix = "https://github.com/";
+    if (!std.mem.startsWith(u8, u, prefix)) return null;
+    var path = u[prefix.len..];
+
+    // A git url carries its ref after '#'; split it off before path parsing.
+    var ref: ?[]const u8 = null;
+    if (std.mem.indexOfScalar(u8, path, '#')) |h| {
+        if (h + 1 < path.len) ref = path[h + 1 ..];
+        path = path[0..h];
+    }
+
+    var segs: std.ArrayListUnmanaged([]const u8) = .empty;
+    var it = std.mem.splitScalar(u8, path, '/');
+    while (it.next()) |s| if (s.len != 0) try segs.append(arena, s);
+    if (segs.items.len < 2) return null;
+
+    const owner = segs.items[0];
+    var repo = segs.items[1];
+    if (std.mem.endsWith(u8, repo, ".git")) repo = repo[0 .. repo.len - ".git".len];
+    if (owner.len == 0 or repo.len == 0) return null;
+
+    // Derive the ref from the url shape when it was not a git `#ref`:
+    //   /<o>/<r>/archive/<ref>.<ext>
+    //   /<o>/<r>/archive/refs/tags/<tag>.<ext>
+    //   /<o>/<r>/releases/download/<tag>/<file>
+    if (ref == null and segs.items.len >= 3) {
+        const kind = segs.items[2];
+        if (std.mem.eql(u8, kind, "archive")) {
+            ref = stripArchiveExt(segs.items[segs.items.len - 1]);
+        } else if (std.mem.eql(u8, kind, "releases") and segs.items.len >= 5 and
+            std.mem.eql(u8, segs.items[3], "download"))
+        {
+            ref = segs.items[4];
+        }
+    }
+    const r = ref orelse return null;
+    if (r.len == 0) return null;
+
+    const purl = try std.fmt.allocPrint(arena, "pkg:github/{s}/{s}@{s}", .{
+        try asciiLowerDupe(arena, owner),
+        try asciiLowerDupe(arena, repo),
+        try percentEncode(arena, r),
+    });
+    return purl;
+}
+
 fn purlOf(arena: Allocator, node: resolver.Node) ![]const u8 {
+    if (try githubPurl(arena, node)) |p| return p;
+
     const name = try percentEncode(arena, node.name);
     const ver = if (node.version) |v|
         try std.fmt.allocPrint(arena, "@{s}", .{try percentEncode(arena, v)})
@@ -518,6 +593,71 @@ test "SPDX is well-formed with required fields and DEPENDS_ON" {
         if (std.mem.eql(u8, r.object.get("relationshipType").?.string, "DEPENDS_ON")) saw_depends_on = true;
     }
     try testing.expect(saw_depends_on);
+}
+
+test "purlOf maps github urls to pkg:github with the source ref" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const cases = .{
+        // git+https carrying a commit ref.
+        .{
+            "git+https://github.com/zigimg/zigimg#74caab5edd7c5f1d2f7d87e5717435ce0f0affa1",
+            "pkg:github/zigimg/zigimg@74caab5edd7c5f1d2f7d87e5717435ce0f0affa1",
+        },
+        // .git suffix is stripped from the repo.
+        .{ "git+https://github.com/u/r.git#abc123", "pkg:github/u/r@abc123" },
+        // Archive tarball pinned at a commit (a real ghostty/capy shape).
+        .{
+            "https://github.com/emidoots/zigimg/archive/204076da6e0cce50ca19c46570793deda6c2b8cb.tar.gz",
+            "pkg:github/emidoots/zigimg@204076da6e0cce50ca19c46570793deda6c2b8cb",
+        },
+        // A `.zip` archive (mitchellh/zig-objc in capy).
+        .{
+            "https://github.com/mitchellh/zig-objc/archive/362d12f4d91dfde84668e0befc5a8ca76659965a.zip",
+            "pkg:github/mitchellh/zig-objc@362d12f4d91dfde84668e0befc5a8ca76659965a",
+        },
+        // Tagged archive; owner case is normalized to lowercase.
+        .{
+            "https://github.com/Hejsil/zig-clap/archive/refs/tags/0.10.0.tar.gz",
+            "pkg:github/hejsil/zig-clap@0.10.0",
+        },
+        // Release asset download; ref is the tag.
+        .{
+            "https://github.com/foo/Bar/releases/download/v1.2.3/bar.tar.gz",
+            "pkg:github/foo/bar@v1.2.3",
+        },
+    };
+    inline for (cases) |c| {
+        const node: resolver.Node = .{ .name = "x", .version = "9.9.9", .kind = .git, .url = c[0] };
+        try testing.expectEqualStrings(c[1], try purlOf(arena, node));
+    }
+}
+
+test "purlOf keeps pkg:generic for non-github and unparseable urls" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A custom mirror keeps the generic form with the download_url qualifier.
+    const mirror: resolver.Node = .{ .name = "z", .version = "0.2.0", .kind = .url, .url = "https://deps.files.ghostty.org/z.tar.gz" };
+    try testing.expectEqualStrings(
+        "pkg:generic/z@0.2.0?download_url=https%3A%2F%2Fdeps.files.ghostty.org%2Fz.tar.gz",
+        try purlOf(arena, mirror),
+    );
+
+    // GitLab is not github.
+    const gitlab: resolver.Node = .{ .name = "wp", .version = "1.47", .kind = .url, .url = "https://gitlab.freedesktop.org/wayland/wayland-protocols/-/archive/1.47/wp-1.47.tar.gz" };
+    try testing.expect(std.mem.startsWith(u8, try purlOf(arena, gitlab), "pkg:generic/"));
+
+    // A github url with no usable ref (bare repo root) falls back.
+    const bare: resolver.Node = .{ .name = "b", .version = "1.0.0", .kind = .url, .url = "https://github.com/owner/repo" };
+    try testing.expect(std.mem.startsWith(u8, try purlOf(arena, bare), "pkg:generic/"));
+
+    // A path dependency (no url) stays generic.
+    const local: resolver.Node = .{ .name = "loc", .version = "0.0.1", .kind = .path, .path = "../loc" };
+    try testing.expectEqualStrings("pkg:generic/loc@0.0.1", try purlOf(arena, local));
 }
 
 test "iso8601 formats a known epoch" {
