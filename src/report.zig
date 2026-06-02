@@ -8,6 +8,7 @@ const Writer = std.Io.Writer;
 
 const resolver = @import("resolver.zig");
 const integrity = @import("integrity.zig");
+const json = @import("json.zig");
 const Finding = integrity.Finding;
 const Severity = integrity.Severity;
 
@@ -179,30 +180,8 @@ fn renderJsonNode(out: *Writer, node: resolver.Node) !void {
     try out.writeAll("]}");
 }
 
-fn jsonOptionalField(out: *Writer, key: []const u8, value: ?[]const u8) !void {
-    const v = value orelse return;
-    try out.print(",\"{s}\":", .{key});
-    try jsonString(out, v);
-}
-
-fn jsonString(out: *Writer, s: []const u8) !void {
-    try out.writeByte('"');
-    for (s) |c| {
-        switch (c) {
-            '"' => try out.writeAll("\\\""),
-            '\\' => try out.writeAll("\\\\"),
-            '\n' => try out.writeAll("\\n"),
-            '\r' => try out.writeAll("\\r"),
-            '\t' => try out.writeAll("\\t"),
-            else => if (c < 0x20) {
-                try out.print("\\u{x:0>4}", .{c});
-            } else {
-                try out.writeByte(c);
-            },
-        }
-    }
-    try out.writeByte('"');
-}
+const jsonString = json.writeString;
+const jsonOptionalField = json.optionalField;
 
 const testing = std.testing;
 

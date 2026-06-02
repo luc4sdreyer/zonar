@@ -2,7 +2,8 @@
 
 A supply-chain auditor for the Zig package manager. It resolves your dependency
 tree straight from the on-disk package cache, checks that every dependency is
-pinned, and optionally re-verifies content hashes over the network.
+pinned, scans build scripts for risky capabilities, and exports an SBOM
+(CycloneDX / SPDX).
 
 > Requires **Zig 0.16**.
 
@@ -16,8 +17,8 @@ Three facts about Zig's package model shape this tool:
   hash, and is the hash the thing being trusted?"
 - **The cache already has everything.** Once dependencies are fetched they live
   under the global cache at `<cache>/p/<hash>/`, each with its own
-  `build.zig.zon`. The whole transitive tree can be resolved by reading files —
-  no network required.
+  `build.zig.zon`. The whole transitive tree can be resolved by reading files,
+  with no network needed.
 - **`build.zig` is code.** Every dependency's `build.zig` runs as unsandboxed
   code at configure time. Auditing what those scripts can do is the natural next
   step (see [Roadmap](#roadmap)).
@@ -73,8 +74,8 @@ as a CI gate.
 
 Every dependency's `build.zig` runs as unsandboxed code at configure time. With
 `--scan`, zonar parses each one with the compiler's own AST (`std.zig.Ast`) and
-reports what the script is *capable of* — executing processes, opening network
-connections, reading the environment or filesystem:
+reports what the script can do at configure time, such as running processes,
+opening network connections, or reading the environment and filesystem:
 
 ```
 zonar audit --scan — demo 0.1.0
@@ -91,9 +92,36 @@ Summary: 0 critical, 0 high, 2 low, 0 info
 Capabilities are a **report, not a verdict**. They are graded below `high` and
 never affect the exit code: a build script using `addSystemCommand` is suspicious
 to a human, but completely normal in many real projects. The scan is also
-intentionally shallow — it matches qualified names in the AST and cannot follow
+intentionally shallow. It matches qualified names in the AST and cannot follow
 aliasing (`const p = std.process;`) or reflection, so treat it as "here is what to
 review," never proof of anything.
+
+### SBOM export (`--sbom`)
+
+zonar can emit a Software Bill of Materials of the resolved dependency graph, in
+**CycloneDX 1.6** or **SPDX 2.3** (JSON):
+
+```sh
+zonar audit --sbom=cyclonedx > sbom.cdx.json
+zonar audit --sbom=spdx      > sbom.spdx.json
+```
+
+Notes specific to Zig:
+
+- A package's identity is its **content hash**, so that hash is used directly as the
+  CycloneDX `bom-ref`. It is *not* a standard SHA-256 digest, so it is carried as a
+  `zonar:zig-hash` property (CycloneDX) or the package comment (SPDX) rather than
+  masquerading in a `hashes`/`checksums` field.
+- Components use a `pkg:generic/<name>@<version>?download_url=...` package URL, since
+  Zig has no registered PURL type.
+- Any findings from the same run ride along. An `unpinned` dependency, for example,
+  becomes a `zonar:finding:unpinned` property, so the SBOM flags its own weak spots.
+- **CycloneDX output is reproducible** (no embedded timestamp or serial number), so it
+  diffs cleanly in version control. SPDX requires a unique document namespace and a
+  creation timestamp, so SPDX output is not byte-reproducible.
+
+The audit still runs in SBOM mode, so `--fail-on` (below) applies to the exit code.
+You can generate an SBOM and gate CI in one command.
 
 ## What it checks
 
@@ -118,9 +146,11 @@ the weak spots and leaves the judgement to you.
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit the audit as JSON (`{ root, findings, summary }`) instead of a tree. |
+| `--sbom=<format>` | Emit an SBOM instead of a report. `format` is `cyclonedx` or `spdx`. |
 | `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
 | `--verify` | Re-fetch remote dependencies with `zig fetch` and compare hashes. |
 | `--cache <dir>` | Override the global cache directory (defaults to `ZIG_GLOBAL_CACHE_DIR`, then `zig env`). |
+| `--fail-on=<level>` | Exit non-zero at this severity or above: `info`, `low`, `high` (default), `critical`, or `never`. |
 | `-h`, `--help` | Show help. |
 | `-v`, `--version` | Show version. |
 
@@ -136,12 +166,11 @@ thin layer over it.
 
 ## Roadmap
 
-Done: tree resolution, integrity checks, and the `--scan` `build.zig` capability
-scanner. Planned:
+Done: tree resolution, integrity checks, the `--scan` `build.zig` capability scanner,
+and `--sbom` export (CycloneDX / SPDX) with `--fail-on` CI gating. Planned:
 
 - **More capabilities** for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
   string literals, and following simple aliasing.
-- **SBOM export** in CycloneDX / SPDX.
 - A native re-implementation of Zig's content hashing (today `--verify` shells
   out to `zig fetch`).
 
@@ -150,4 +179,4 @@ database (none exists to query for Zig yet).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
