@@ -6,13 +6,9 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
-## [0.4.0] - 2026-06-02
+## [0.5.0] - 2026-06-02
 
 ### Added
-- `deprecated_name` finding (info): flags a package whose manifest declares
-  `.name` as a string literal (the pre-0.14 form). zonar still parses it
-  leniently, but a current Zig requires an enum literal and will not parse the
-  manifest, so the package is stale and cannot be re-fetched without an edit.
 - `unparsable_manifest` finding (low): flags a package that is present in the
   cache but whose `build.zig.zon` no longer parses. Zig writes a valid manifest
   when it fetches a package, so a later parse failure points at post-fetch
@@ -25,6 +21,16 @@ All notable changes to this project are documented here. The format is based on
   or tag, derived from the download URL) instead of `pkg:generic`. This is the
   identifier other supply-chain tooling can resolve and cross-reference;
   non-github sources still fall back to `pkg:generic`.
+
+## [0.4.0] - 2026-06-02
+
+### Added
+- `deprecated_name` finding (info): flags a package whose manifest declares
+  `.name` as a string literal (the pre-0.14 form). zonar still parses it
+  leniently, but a current Zig requires an enum literal and will not parse the
+  manifest, so the package is stale and cannot be re-fetched without an edit.
+
+### Changed
 - `--verify` now works **offline**. Instead of re-fetching each remote
   dependency over the network, it recomputes the content hash of each cached
   dependency by running `zig fetch` on its on-disk package directory and checks
@@ -82,7 +88,8 @@ All notable changes to this project are documented here. The format is based on
 - Text tree and JSON output; importable library module.
 - Signed cross-platform release binaries (minisign) and GitHub Pages API docs.
 
-[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/luc4sdreyer/zonar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/luc4sdreyer/zonar/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/luc4sdreyer/zonar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/luc4sdreyer/zonar/compare/v0.1.0...v0.2.0
