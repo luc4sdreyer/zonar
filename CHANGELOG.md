@@ -18,6 +18,10 @@ All notable changes to this project are documented here. The format is based on
   to the project's `build.zig.zon` with the dependency in a logical location;
   severities map to SARIF levels (info → note, low → warning, high/critical →
   error) and each rule carries a `security-severity` for GitHub's bucketing.
+- `--scan` now follows `@import` of sibling `.zig` files within a package, so a
+  capability moved out of `build.zig` into a helper file is still reported
+  (against that file's path). Import-following stays inside the package directory:
+  an `@import` that resolves outside it (via `../`) is not followed.
 
 ## [0.5.0] - 2026-06-02
 

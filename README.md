@@ -160,6 +160,10 @@ Findings:
 Summary: 0 critical, 0 high, 2 low, 0 info
 ```
 
+The scan follows `@import` of sibling `.zig` files within the package, so a
+capability moved out of `build.zig` into a helper file is still reported (against
+that file's path); it never leaves the package directory.
+
 Capabilities are graded below `high` and
 never affect the exit code: a build script using `addSystemCommand` is suspicious
 to a human, but completely normal in many real projects. The scan is also
