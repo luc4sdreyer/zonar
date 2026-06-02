@@ -17,7 +17,9 @@ zig build docs               # build the API docs into zig-out/docs
 CI runs the formatter, the test suite on Linux/macOS/Windows, a docs build,
 [zlint](https://github.com/DonIsaac/zlint) (blocking), SBOM schema validation,
 and the integration test. To run zlint locally, download the binary for your
-platform from its releases page and run `zlint` from the repo root.
+platform from its releases page and run `zlint build.zig src/*.zig` from the repo
+root (scoped to our source, so it skips the vendored third-party build scripts
+under `testdata/integration/`).
 
 The integration test (`tasks/integration-test.sh`) audits real `build.zig.zon`
 manifests under `testdata/integration/` against committed golden JSON, offline.
