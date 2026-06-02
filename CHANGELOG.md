@@ -15,6 +15,11 @@ All notable changes to this project are documented here. The format is based on
   manifest, so the package is stale and cannot be re-fetched without an edit.
 
 ### Changed
+- SBOM components for github-hosted dependencies now use a
+  `pkg:github/<owner>/<repo>@<ref>` package URL (the `ref` is the pinned commit
+  or tag, derived from the download URL) instead of `pkg:generic`. This is the
+  identifier other supply-chain tooling can resolve and cross-reference;
+  non-github sources still fall back to `pkg:generic`.
 - `--verify` now works **offline**. Instead of re-fetching each remote
   dependency over the network, it recomputes the content hash of each cached
   dependency by running `zig fetch` on its on-disk package directory and checks
