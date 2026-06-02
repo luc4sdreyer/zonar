@@ -8,6 +8,7 @@
 *.md text eol=lf
 *.yml text eol=lf
 *.sh text eol=lf
+*.json text eol=lf
 
 # Windows-only helper keeps CRLF.
 *.ps1 text eol=crlf

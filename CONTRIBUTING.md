@@ -7,16 +7,25 @@ is just a Zig toolchain.
 ## Development loop
 
 ```sh
-zig build            # build the CLI (zig-out/bin/zonar)
-zig build test       # run all unit + integration tests
+zig build                    # build the CLI (zig-out/bin/zonar)
+zig build test               # run all unit tests
 zig fmt --check build.zig src
-zig build docs       # build the API docs into zig-out/docs
+zig build docs               # build the API docs into zig-out/docs
+./tasks/integration-test.sh  # audit real-world manifests vs. golden output
 ```
 
-CI runs the formatter, the test suite on Linux/macOS/Windows, a docs build, and
-[zlint](https://github.com/DonIsaac/zlint). To run zlint locally, download the
-binary for your platform from its releases page and run `zlint` from the repo
-root. The lint job is currently non-blocking; please keep it clean anyway.
+CI runs the formatter, the test suite on Linux/macOS/Windows, a docs build,
+[zlint](https://github.com/DonIsaac/zlint) (blocking), SBOM schema validation,
+and the integration test. To run zlint locally, download the binary for your
+platform from its releases page and run `zlint build.zig src/*.zig` from the repo
+root (scoped to our source, so it skips the vendored third-party build scripts
+under `testdata/integration/`).
+
+The integration test (`tasks/integration-test.sh`) audits real `build.zig.zon`
+manifests under `testdata/integration/` against committed golden JSON, offline.
+When a bundled manifest changes upstream, regenerate the corpus from the pinned
+commits with `tasks/refresh-integration-fixtures.sh` (needs network) and commit
+the result.
 
 Editor support: install [ZLS](https://github.com/zigtools/zls), the Zig Language
 Server, for completion and inline diagnostics.
