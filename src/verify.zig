@@ -1,6 +1,6 @@
 //! Opt-in content verification (`--verify`). For each remote dependency with a
-//! declared hash, shell out to `zig fetch <url>` — which fetches the content,
-//! recomputes its hash, and prints it — then compare against the declared hash.
+//! declared hash, shell out to `zig fetch <url>` (which fetches the content,
+//! recomputes its hash, and prints it), then compare against the declared hash.
 //! A mismatch is critical: the url is serving something other than what the
 //! manifest claims. This is the one part of the audit that requires network.
 //!

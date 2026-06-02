@@ -4,8 +4,8 @@
 //!
 //! A guiding principle (and the project's framing): in Zig the content `hash`
 //! is the source of truth; the `url` is just a mirror. So a *mutable* git ref
-//! is only a true integrity hole when there is no hash to pin the content —
-//! otherwise it is a provenance smell, not a compromise. We grade accordingly,
+//! is only a true integrity hole when there is no hash to pin the content.
+//! Otherwise it is a provenance smell, not a compromise. We grade accordingly,
 //! and we describe findings as "review this," never "this is malware."
 
 const std = @import("std");
@@ -64,7 +64,7 @@ pub const Code = enum {
     /// The build script touches the filesystem outside the build graph.
     cap_filesystem,
     /// `--scan`: a build.zig was present but could not be parsed, so it was not
-    /// scanned (not a capability — an inspection gap).
+    /// scanned (not a capability, an inspection gap).
     unscannable,
 
     pub fn slug(self: Code) []const u8 {

@@ -12,7 +12,7 @@ All notable changes to this project are documented here. The format is based on
 - `legacy_hash` finding (info): flags a dependency pinned with a pre-0.14
   sha2-256 multihash (`1220…`). The content is still pinned, but a current Zig
   computes a different hash format, so the pin will not match a freshly-fetched
-  package — a provenance/staleness signal.
+  package. It is a provenance/staleness signal.
 - Integration corpus under `testdata/integration/`: real `build.zig.zon`
   manifests from mach, ghostty, capy, and zap (pinned to upstream commits),
   audited offline against committed golden JSON by `tasks/integration-test.sh`

@@ -1,6 +1,6 @@
 //! Minimal JSON output helpers shared by the audit report and the SBOM
-//! exporters. zonar hand-writes JSON (rather than pulling in a dependency — a
-//! supply-chain tool keeps its own tree empty), so escaping lives in one place.
+//! exporters. zonar hand-writes JSON (rather than pulling in a dependency, since
+//! a supply-chain tool keeps its own tree empty), so escaping lives in one place.
 
 const std = @import("std");
 const Writer = std.Io.Writer;
