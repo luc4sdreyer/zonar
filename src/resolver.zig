@@ -309,3 +309,51 @@ test "resolve records a cached dependency's legacy string name" {
     try testing.expectEqual(@as(usize, 1), tree.root.children.len);
     try testing.expect(tree.root.children[0].name_is_legacy_string);
 }
+
+test "resolve marks a cached dependency with a corrupt manifest as parse_error" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A cached package present on disk, but whose build.zig.zon does not parse
+    // (as if it were corrupted or edited after fetch).
+    const dep_hash = "broken-1.0.0-AAAAAAAAAAAA";
+    {
+        var d = try tmp.dir.createDirPathOpen(io, "cache/p/" ++ dep_hash, .{});
+        d.close(io);
+    }
+    {
+        var d = try tmp.dir.createDirPathOpen(io, "proj", .{});
+        d.close(io);
+    }
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/" ++ dep_hash ++ "/build.zig.zon",
+        .data = ".{ .name = .broken, .version = ", // truncated: unparseable
+    });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "proj/build.zig.zon",
+        .data =
+        \\.{
+        \\    .name = .demo,
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{
+        \\        .broken = .{ .url = "https://ex/b.tar.gz", .hash = "broken-1.0.0-AAAAAAAAAAAA" },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+        ,
+    });
+
+    const tmp_prefix = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path[0..]});
+    const cache_root = try std.fmt.allocPrint(arena, "{s}/cache", .{tmp_prefix});
+    const root_path = try std.fmt.allocPrint(arena, "{s}/proj/build.zig.zon", .{tmp_prefix});
+
+    const tree = try resolve(arena, io, .{ .root = cache_root }, root_path);
+
+    try testing.expectEqual(@as(usize, 1), tree.root.children.len);
+    try testing.expectEqual(Status.parse_error, tree.root.children[0].status);
+}

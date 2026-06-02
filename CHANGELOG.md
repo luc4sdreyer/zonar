@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format is based on
   `.name` as a string literal (the pre-0.14 form). zonar still parses it
   leniently, but a current Zig requires an enum literal and will not parse the
   manifest, so the package is stale and cannot be re-fetched without an edit.
+- `unparsable_manifest` finding (low): flags a package that is present in the
+  cache but whose `build.zig.zon` no longer parses. Zig writes a valid manifest
+  when it fetches a package, so a later parse failure points at post-fetch
+  corruption or tampering. Previously such a package was resolved with an
+  internal `parse_error` status that produced no finding at all.
 
 ### Changed
 - SBOM components for github-hosted dependencies now use a

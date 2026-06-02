@@ -52,6 +52,10 @@ pub const Code = enum {
     deprecated_name,
     /// The package was not found in the cache, so it could not be inspected.
     not_in_cache,
+    /// The package is present in the cache but its `build.zig.zon` could not be
+    /// parsed. Zig wrote a valid manifest when it fetched the package, so a later
+    /// parse failure means the cached manifest was corrupted or modified.
+    unparsable_manifest,
     /// `--verify`: the recomputed content hash did not match the declared hash.
     hash_mismatch,
 
@@ -170,6 +174,23 @@ pub fn findingsFor(arena: Allocator, node: resolver.Node, out: *std.ArrayList(Fi
             .message = try std.fmt.allocPrint(
                 arena,
                 "not present in the cache; run `zig build --fetch` to inspect it",
+                .{},
+            ),
+        });
+    }
+
+    // The package is in the cache but its manifest no longer parses. Zig writes
+    // a valid build.zig.zon on fetch, so this points at post-fetch corruption or
+    // tampering. `--verify` cannot recompute a hash for it (the hash format needs
+    // a parseable name/version), so report it here instead.
+    if (node.status == .parse_error) {
+        try out.append(arena, .{
+            .package = node.name,
+            .severity = .low,
+            .code = .unparsable_manifest,
+            .message = try std.fmt.allocPrint(
+                arena,
+                "present in the cache but its build.zig.zon could not be parsed; the cached manifest may be corrupted or modified",
                 .{},
             ),
         });
@@ -324,6 +345,28 @@ test "findingsFor emits deprecated_name after legacy_hash" {
     try testing.expectEqual(@as(usize, 2), out.items.len);
     try testing.expectEqual(Code.legacy_hash, out.items[0].code);
     try testing.expectEqual(Code.deprecated_name, out.items[1].code);
+}
+
+test "findingsFor reports a cached package whose manifest does not parse" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Properly pinned (modern hash) so no other finding fires; the only anomaly
+    // is that the cached manifest failed to parse.
+    var out: std.ArrayList(Finding) = .empty;
+    const node: resolver.Node = .{
+        .name = "dep",
+        .kind = .url,
+        .url = "https://x/y.tar.gz",
+        .hash = "dep-1.0.0-AAAA",
+        .status = .parse_error,
+    };
+    try findingsFor(arena, node, &out);
+
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqual(Code.unparsable_manifest, out.items[0].code);
+    try testing.expectEqual(Severity.low, out.items[0].severity);
 }
 
 test "findingsFor flags unpinned url dependency" {

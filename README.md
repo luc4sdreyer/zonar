@@ -205,6 +205,7 @@ You can generate an SBOM and gate CI in one command.
 | `legacy_hash` | info | A `hash` in the pre-0.14 `1220…` multihash format. Content is pinned, but a current Zig computes a different hash format, so the pin won't match a freshly-fetched package. |
 | `deprecated_name` | info | The package's manifest declares `.name` as a string (the pre-0.14 form). A current Zig requires an enum literal and won't parse the manifest. |
 | `not_in_cache` | info | The package isn't fetched yet, so it couldn't be inspected. |
+| `unparsable_manifest` | low | The package is in the cache but its `build.zig.zon` won't parse. Zig writes a valid manifest on fetch, so this points at post-fetch corruption or tampering. |
 | `hash_mismatch` | critical | `--verify` only: a cached package's recomputed content hash doesn't match the hash it's filed under (the cached content has been modified). |
 | `cap_exec` | low | `--scan` only: the build script can execute external processes. |
 | `cap_network` | low | `--scan` only: the build script can access the network. |
