@@ -119,8 +119,8 @@ const Builder = struct {
         }
     }
 
-    fn finish(b: *Builder) Graph {
-        const deps = b.arena.alloc([]const usize, b.deps.items.len) catch unreachable;
+    fn finish(b: *Builder) !Graph {
+        const deps = try b.arena.alloc([]const usize, b.deps.items.len);
         for (b.deps.items, 0..) |*d, i| deps[i] = d.items;
         return .{ .components = b.components.items, .deps = deps };
     }

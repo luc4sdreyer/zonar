@@ -1,5 +1,7 @@
 # zonar
 
+[![CI](https://github.com/luc4sdreyer/zonar/actions/workflows/ci.yml/badge.svg)](https://github.com/luc4sdreyer/zonar/actions/workflows/ci.yml)
+
 A supply-chain auditor for the Zig package manager. It resolves your dependency
 tree straight from the on-disk package cache, checks that every dependency is
 pinned, scans build scripts for risky capabilities, and exports an SBOM
@@ -28,6 +30,34 @@ with the compiler's ZON parser (`std.zig.Ast` → `std.zig.ZonGen` → `Zoir`), 
 same path `std.zon` uses internally.
 
 ## Install
+
+### From a release
+
+Releases ship signed binaries for Linux, macOS, and Windows. The install script
+picks the right one for your platform, verifies its minisign signature, and
+installs it (read it first; it tells you what it does):
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/luc4sdreyer/zonar/main/tasks/install.sh | sh
+```
+
+On Windows (PowerShell):
+
+```powershell
+irm https://raw.githubusercontent.com/luc4sdreyer/zonar/main/tasks/install.ps1 | iex
+```
+
+Prefer to do it by hand? Download the archive, its `.minisig`, and `minisign.pub`
+from the [latest release](https://github.com/luc4sdreyer/zonar/releases/latest),
+then verify before trusting the binary:
+
+```sh
+minisign -Vm zonar-x86_64-linux-musl.tar.gz -p minisign.pub
+```
+
+The public key is committed to this repo as `minisign.pub`.
+
+### From source
 
 ```sh
 git clone https://github.com/luc4sdreyer/zonar
@@ -159,10 +189,13 @@ the weak spots and leaves the judgement to you.
 ```sh
 zig build test            # run all unit + integration tests
 zig fmt --check build.zig src
+zig build docs            # API docs into zig-out/docs
 ```
 
 The audit engine is also importable as a library module (`zonar`); the CLI is a
-thin layer over it.
+thin layer over it. API documentation is published at
+<https://luc4sdreyer.github.io/zonar/>. See [CONTRIBUTING.md](CONTRIBUTING.md) for
+the full dev loop, linting, and how releases are cut and verified.
 
 ## Roadmap
 

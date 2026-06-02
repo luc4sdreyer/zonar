@@ -1,0 +1,19 @@
+# Normalize line endings. Zig source must stay LF so `zig fmt --check` and the
+# compiler behave identically on the Windows CI runner (the checkout action would
+# otherwise convert to CRLF).
+* text=auto eol=lf
+
+*.zig text eol=lf
+*.zon text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.sh text eol=lf
+
+# Windows-only helper keeps CRLF.
+*.ps1 text eol=crlf
+
+# Binary artifacts.
+*.wasm binary
+*.tar binary
+*.minisig binary
+*.pub binary
