@@ -181,6 +181,7 @@ You can generate an SBOM and gate CI in one command.
 | --- | --- | --- |
 | `unpinned` | high | A `url`/`git` dependency with no `hash`. Content is not pinned. |
 | `mutable_ref` | low | A git dependency whose committish isn't an immutable commit SHA. The hash still pins the content, but the URL provenance is mutable. |
+| `legacy_hash` | info | A `hash` in the pre-0.14 `1220…` multihash format. Content is pinned, but a current Zig computes a different hash format, so the pin won't match a freshly-fetched package. |
 | `not_in_cache` | info | The package isn't fetched yet, so it couldn't be inspected. |
 | `hash_mismatch` | critical | `--verify` only: the re-fetched content's hash doesn't match the declared hash. |
 | `cap_exec` | low | `--scan` only: the build script can execute external processes. |
@@ -209,10 +210,17 @@ the weak spots and leaves the judgement to you.
 ## Development
 
 ```sh
-zig build test            # run all unit + integration tests
+zig build test            # run all unit tests
 zig fmt --check build.zig src
 zig build docs            # API docs into zig-out/docs
+./tasks/integration-test.sh   # audit real-world manifests vs. golden output
 ```
+
+`tasks/integration-test.sh` audits a corpus of real `build.zig.zon` manifests
+(mach, ghostty, capy, zap) under `testdata/integration/`, pinned to upstream
+commits, and diffs zonar's JSON against committed goldens — offline, so it runs
+in CI. Regenerate the corpus from the pinned commits with
+`tasks/refresh-integration-fixtures.sh`.
 
 The audit engine is also importable as a library module (`zonar`); the CLI is a
 thin layer over it. API documentation is published at

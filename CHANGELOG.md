@@ -6,6 +6,19 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-02
+
+### Added
+- `legacy_hash` finding (info): flags a dependency pinned with a pre-0.14
+  sha2-256 multihash (`1220…`). The content is still pinned, but a current Zig
+  computes a different hash format, so the pin will not match a freshly-fetched
+  package — a provenance/staleness signal.
+- Integration corpus under `testdata/integration/`: real `build.zig.zon`
+  manifests from mach, ghostty, capy, and zap (pinned to upstream commits),
+  audited offline against committed golden JSON by `tasks/integration-test.sh`
+  (now a CI job). `tasks/refresh-integration-fixtures.sh` regenerates the
+  fixtures from the pinned commits.
+
 ## [0.2.0] - 2026-06-02
 
 ### Added
@@ -35,6 +48,7 @@ All notable changes to this project are documented here. The format is based on
 - Text tree and JSON output; importable library module.
 - Signed cross-platform release binaries (minisign) and GitHub Pages API docs.
 
-[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/luc4sdreyer/zonar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/luc4sdreyer/zonar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/luc4sdreyer/zonar/releases/tag/v0.1.0
