@@ -162,13 +162,24 @@ fn appendCap(
     const key = try std.fmt.allocPrint(arena, "{s}:{d}", .{ code.slug(), line });
     if (seen.contains(key)) return;
     try seen.put(arena, key, {});
+    const location_path = try reportPath(arena, rel_path);
     try out.append(arena, .{
         .package = package,
         .severity = severity,
         .code = code,
         .message = message,
-        .location = try std.fmt.allocPrint(arena, "{s}:{d}", .{ rel_path, line }),
+        .location = try std.fmt.allocPrint(arena, "{s}:{d}", .{ location_path, line }),
     });
+}
+
+fn reportPath(arena: Allocator, rel_path: []const u8) Allocator.Error![]const u8 {
+    if (std.mem.indexOfScalar(u8, rel_path, '\\') == null) return rel_path;
+
+    const normalized = try arena.dupe(u8, rel_path);
+    for (normalized) |*ch| {
+        if (ch.* == '\\') ch.* = '/';
+    }
+    return normalized;
 }
 
 /// Return the inner text of a double-quoted string-literal token (quotes
