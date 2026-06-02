@@ -197,6 +197,27 @@ Notes specific to Zig:
 The audit still runs in SBOM mode, so `--fail-on` (below) applies to the exit code.
 You can generate an SBOM and gate CI in one command.
 
+### GitHub code scanning (`--sarif`)
+
+`--sarif` emits the findings as a [SARIF 2.1.0](https://sarifweb.azurewebsites.net/)
+log, so a CI step can upload them and they show up in the repository's Security
+tab and as pull-request annotations:
+
+```yaml
+- run: zonar audit --scan --sarif --fail-on=never > zonar.sarif
+- uses: github/codeql-action/upload-sarif@v3
+  with:
+    sarif_file: zonar.sarif
+```
+
+Because zonar's findings are about *dependency* files (which aren't in your
+repo), each result is anchored to your own `build.zig.zon`, with the dependency
+named in a logical location and its in-package location (`build.zig:42`) carried
+in the message. Severities map to SARIF levels as info → note, low → warning,
+high/critical → error, and each rule carries a `security-severity` so GitHub
+buckets it (critical/high/medium/low). Use `--fail-on=never` so the audit step
+exits 0 and the SARIF still uploads; gate the build separately if you want to.
+
 ## What it checks
 
 | Finding | Severity | Meaning |
@@ -225,6 +246,7 @@ the weak spots and leaves the judgement to you.
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit the audit as JSON (`{ root, findings, summary }`) instead of a tree. |
+| `--sarif` | Emit findings as a SARIF 2.1.0 log for GitHub code scanning (Security tab, PR annotations). |
 | `--sbom=<format>` | Emit an SBOM instead of a report. `format` is `cyclonedx` or `spdx`. |
 | `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
 | `--verify` | Recompute each cached dependency's content hash with `zig fetch` and check it against the hash it's filed under (offline; needs `zig` and a `build.zig` in the project). |
@@ -255,13 +277,18 @@ the full dev loop, linting, and how releases are cut and verified.
 
 ## Roadmap
 
-Done: tree resolution, integrity checks, the `--scan` `build.zig` capability scanner,
-and `--sbom` export (CycloneDX / SPDX) with `--fail-on` CI gating. Planned:
+Done: tree resolution, integrity checks, the `--scan` `build.zig` capability
+scanner (process/network/env/fs, `@cImport`, `@embedFile`, absolute-path literals,
+and following local `@import`), offline `--verify`, `--sbom` export (CycloneDX /
+SPDX with `pkg:github` PURLs), and `--sarif` output, all with `--fail-on` CI
+gating. Planned milestones:
 
-- More capabilities for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
-  string literals, and following simple aliasing.
-- A native re-implementation of Zig's content hashing (today `--verify` shells
-  out to `zig fetch`).
+- **Findings baseline / suppression**: accept reviewed findings (a baseline file
+  or allow-list) so CI fails only on *new* ones.
+- **Alias-following in `--scan`**: track `const p = std.process;` bindings so an
+  aliased capability call is still detected.
+- **License detection**: read a package's `LICENSE` and emit a real SPDX license
+  id in the SBOM instead of `NOASSERTION`.
 
 Explicit non-goals: runtime sandboxing (a job for Zig core) and a CVE/advisory
 database (none exists to query for Zig yet).
