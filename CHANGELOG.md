@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-03
+
 ### Added
 - `--scan` now flags three more build-script capabilities: `cap_cimport` (low,
   `@cImport` runs the C translation layer over headers at configure time),
@@ -110,7 +112,8 @@ All notable changes to this project are documented here. The format is based on
 - Text tree and JSON output; importable library module.
 - Signed cross-platform release binaries (minisign) and GitHub Pages API docs.
 
-[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/luc4sdreyer/zonar/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/luc4sdreyer/zonar/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/luc4sdreyer/zonar/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/luc4sdreyer/zonar/compare/v0.2.0...v0.3.0
