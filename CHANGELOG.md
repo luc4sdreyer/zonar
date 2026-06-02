@@ -22,6 +22,11 @@ All notable changes to this project are documented here. The format is based on
   capability moved out of `build.zig` into a helper file is still reported
   (against that file's path). Import-following stays inside the package directory:
   an `@import` that resolves outside it (via `../`) is not followed.
+- `--baseline <file>` and `--update-baseline`: record a reviewed set of findings
+  so CI fails only on new ones. `--update-baseline` snapshots the current findings
+  to the file; `--baseline` suppresses matching findings (by package, code, and
+  message, ignoring the source line so a finding survives reformatting) and gates
+  only on the rest. Stale baseline entries (the finding was fixed) are reported.
 
 ## [0.5.0] - 2026-06-02
 

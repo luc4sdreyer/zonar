@@ -222,6 +222,29 @@ high/critical → error, and each rule carries a `security-severity` so GitHub
 buckets it (critical/high/medium/low). Use `--fail-on=never` so the audit step
 exits 0 and the SARIF still uploads; gate the build separately if you want to.
 
+### Baselines: review once, gate on new (`--baseline`)
+
+Many findings are things you look at once and accept (a build script that runs a
+process, a dependency on a legacy hash). A baseline records the findings you have
+reviewed so CI fails only on *new* ones. Snapshot the current findings, then
+audit against them:
+
+```sh
+# Capture today's findings as the accepted baseline (run the checks you gate on):
+zonar audit --scan --baseline zonar-baseline.json --update-baseline
+
+# Later runs report and gate only on findings not in the baseline:
+zonar audit --scan --baseline zonar-baseline.json
+```
+
+A finding's baseline identity is its package, code, and message, deliberately
+*not* its source line, so an accepted finding survives the line shifts that come
+when a dependency is reformatted. The baseline file is sorted JSON, so it reviews
+and diffs cleanly in a pull request. When a baselined finding no longer appears
+(it was fixed), zonar notes the stale entry; re-run with `--update-baseline` to
+prune it. Baselining filters the **Findings** list and the exit code; the tree's
+per-node integrity glyph is an unconditional structural hint and is not filtered.
+
 ## What it checks
 
 | Finding | Severity | Meaning |
@@ -255,6 +278,8 @@ the weak spots and leaves the judgement to you.
 | `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
 | `--verify` | Recompute each cached dependency's content hash with `zig fetch` and check it against the hash it's filed under (offline; needs `zig` and a `build.zig` in the project). |
 | `--cache <dir>` | Override the global cache directory (defaults to `ZIG_GLOBAL_CACHE_DIR`, then `zig env`). |
+| `--baseline <file>` | Suppress findings recorded in this baseline; report and gate only on new ones. |
+| `--update-baseline` | Write the current findings to `--baseline <file>` and exit (snapshot the accepted set). |
 | `--fail-on=<level>` | Exit non-zero at this severity or above: `info`, `low`, `high` (default), `critical`, or `never`. |
 | `-h`, `--help` | Show help. |
 | `-v`, `--version` | Show version. |
@@ -284,11 +309,9 @@ the full dev loop, linting, and how releases are cut and verified.
 Done: tree resolution, integrity checks, the `--scan` `build.zig` capability
 scanner (process/network/env/fs, `@cImport`, `@embedFile`, absolute-path literals,
 and following local `@import`), offline `--verify`, `--sbom` export (CycloneDX /
-SPDX with `pkg:github` PURLs), and `--sarif` output, all with `--fail-on` CI
-gating. Planned milestones:
+SPDX with `pkg:github` PURLs), `--sarif` output, and `--baseline` (review once,
+gate on new), all with `--fail-on` CI gating. Planned milestones:
 
-- **Findings baseline / suppression**: accept reviewed findings (a baseline file
-  or allow-list) so CI fails only on *new* ones.
 - **Alias-following in `--scan`**: track `const p = std.process;` bindings so an
   aliased capability call is still detected.
 - **License detection**: read a package's `LICENSE` and emit a real SPDX license
