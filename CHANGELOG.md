@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Added
+- `--scan` now flags three more build-script capabilities: `cap_cimport` (low,
+  `@cImport` runs the C translation layer over headers at configure time),
+  `cap_embed` (info, `@embedFile` pulls a file into the binary at compile time),
+  and a hardcoded absolute path literal such as `/etc/...` or `C:\...` (info,
+  reported under `cap_filesystem`). Alias-following is still out of scope, so the
+  scan remains a "here is what to review" signal, not proof.
+
 ## [0.5.0] - 2026-06-02
 
 ### Added
