@@ -59,6 +59,9 @@ jobs:
           chmod +x zlint
       - name: Run zlint
         run: ./zlint
+      # shellcheck is preinstalled on the runner; lint the shipped task scripts.
+      - name: Run shellcheck
+        run: shellcheck tasks/*.sh
 
   sbom:
     name: SBOM validation

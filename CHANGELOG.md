@@ -16,8 +16,13 @@ All notable changes to this project are documented here. The format is based on
 - Integration corpus under `testdata/integration/`: real `build.zig.zon`
   manifests from mach, ghostty, capy, and zap (pinned to upstream commits),
   audited offline against committed golden JSON by `tasks/integration-test.sh`
-  (now a CI job). `tasks/refresh-integration-fixtures.sh` regenerates the
-  fixtures from the pinned commits.
+  (now a CI job). It exercises legacy-hash pins, a `git+commit` dep, path deps,
+  and a real `--scan` capability (ghostty's `gtk4-layer-shell` runs
+  `wayland-scanner` → `cap_exec`). `tasks/refresh-integration-fixtures.sh`
+  regenerates the fixtures from the pinned commits.
+
+### Changed
+- CI: the shipped shell scripts under `tasks/` are now shellcheck-linted.
 
 ## [0.2.0] - 2026-06-02
 

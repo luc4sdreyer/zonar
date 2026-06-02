@@ -28,8 +28,10 @@ GHOSTTY_REPO="ghostty-org/ghostty"; GHOSTTY_SHA="5758e149319d244cbf2d21d1ae8d137
 CAPY_REPO="capy-ui/capy";           CAPY_SHA="fd77077e296a969ae258c595e75a0723183b3138"
 ZAP_REPO="zigzap/zap";              ZAP_SHA="f6099ecec496c7ec623c5913baa5b6b5da2e883d"
 
-# zigimg, capy's git dependency, pinned by capy's manifest to this commit; its
-# package hash (the cache directory name zonar looks for) is fixed.
+# zigimg, capy's git dependency. ZIGIMG_SHA and ZIGIMG_HASH must match the
+# committish and `.hash` in capy's own build.zig.zon (the hash is the cache
+# directory name zonar looks for) — when bumping CAPY_SHA, re-check both against
+# capy's manifest, or the vendored package silently resolves as `not_in_cache`.
 ZIGIMG_REPO="zigimg/zigimg"
 ZIGIMG_SHA="74caab5edd7c5f1d2f7d87e5717435ce0f0affa1"
 ZIGIMG_HASH="zigimg-0.1.0-8_eo2nWlEgCddu8EGLOM_RkYshx3sC8tWv-yYA4-htS6"
@@ -74,9 +76,11 @@ fetch_manifest zap     "$ZAP_REPO"     "$ZAP_SHA"
 # a fully resolved + scanned node alongside the two legacy-hash deps.
 vendor capy "cache/p/$ZIGIMG_HASH" "$ZIGIMG_REPO" "$ZIGIMG_SHA" ""
 
-# ghostty: vendor one path dependency so the `.path = "./pkg/..."` branch
-# resolves and scans, rather than every dep being not_in_cache.
+# ghostty: vendor two path dependencies so the `.path = "./pkg/..."` branch
+# resolves and scans. wuffs is a clean C shim (no capabilities); gtk4-layer-shell
+# runs `wayland-scanner` via addSystemCommand, so --scan flags a real cap_exec.
 vendor ghostty "pkg/wuffs" "$GHOSTTY_REPO" "$GHOSTTY_SHA" "pkg/wuffs/"
+vendor ghostty "pkg/gtk4-layer-shell" "$GHOSTTY_REPO" "$GHOSTTY_SHA" "pkg/gtk4-layer-shell/"
 
 for name in mach ghostty capy zap; do
   regen_golden "$name"
