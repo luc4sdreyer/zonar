@@ -68,8 +68,15 @@ pub const Code = enum {
     cap_network,
     /// The build script reads environment variables.
     cap_env,
-    /// The build script touches the filesystem outside the build graph.
+    /// The build script touches the filesystem outside the build graph (this
+    /// includes a hardcoded absolute path literal such as `/etc/...`).
     cap_filesystem,
+    /// The build script uses `@cImport`, which runs the C translation layer over
+    /// attacker-influenced headers at configure time.
+    cap_cimport,
+    /// The build script uses `@embedFile`, pulling a file's contents into the
+    /// binary at compile time.
+    cap_embed,
     /// `--scan`: a build.zig was present but could not be parsed, so it was not
     /// scanned (not a capability, an inspection gap).
     unscannable,

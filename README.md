@@ -145,7 +145,8 @@ as a CI gate.
 Every dependency's `build.zig` runs as unsandboxed code at configure time. With
 `--scan`, zonar parses each one with the compiler's own AST (`std.zig.Ast`) and
 reports what the script can do at configure time, such as running processes,
-opening network connections, or reading the environment and filesystem:
+opening network connections, reading the environment and filesystem, importing C
+headers (`@cImport`), or embedding files (`@embedFile`):
 
 ```
 zonar audit: demo 0.1.0
@@ -210,7 +211,9 @@ You can generate an SBOM and gate CI in one command.
 | `cap_exec` | low | `--scan` only: the build script can execute external processes. |
 | `cap_network` | low | `--scan` only: the build script can access the network. |
 | `cap_env` | info | `--scan` only: the build script reads environment variables. |
-| `cap_filesystem` | info | `--scan` only: the build script touches the filesystem outside the build graph. |
+| `cap_filesystem` | info | `--scan` only: the build script touches the filesystem outside the build graph, including a hardcoded absolute path literal (`/etc/...`, `C:\...`). |
+| `cap_cimport` | low | `--scan` only: the build script uses `@cImport`, running the C translation layer over headers at configure time. |
+| `cap_embed` | info | `--scan` only: the build script uses `@embedFile`, pulling a file's contents into the binary at compile time. |
 | `unscannable` | info | `--scan` only: a dependency's `build.zig` couldn't be parsed, so it wasn't scanned. |
 
 A note on honesty: these are static signals about *what to review*, not verdicts.

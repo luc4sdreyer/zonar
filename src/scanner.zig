@@ -108,9 +108,48 @@ fn scanPackage(
     try scanSource(arena, package, source, out);
 }
 
+/// Append a capability finding, deduplicated per `(code, line)` so repeated hits
+/// on one line collapse to a single finding. `message` is the prebuilt detail.
+fn appendCap(
+    arena: Allocator,
+    package: []const u8,
+    out: *std.ArrayList(Finding),
+    seen: *std.StringHashMapUnmanaged(void),
+    code: Code,
+    severity: Severity,
+    message: []const u8,
+    line: usize,
+) Allocator.Error!void {
+    const key = try std.fmt.allocPrint(arena, "{s}:{d}", .{ code.slug(), line });
+    if (seen.contains(key)) return;
+    try seen.put(arena, key, {});
+    try out.append(arena, .{
+        .package = package,
+        .severity = severity,
+        .code = code,
+        .message = message,
+        .location = try std.fmt.allocPrint(arena, "build.zig:{d}", .{line}),
+    });
+}
+
+/// If `raw` (a quoted string-literal token, quotes included) looks like an
+/// absolute filesystem path, return the inner path; otherwise null. The
+/// heuristic is a leading `/` (POSIX) or an `X:\` / `X:/` drive prefix
+/// (Windows). A relative path, a URL (`https://...`), or a format string does
+/// not match because none of them start that way.
+fn absolutePathLiteral(raw: []const u8) ?[]const u8 {
+    if (raw.len < 3) return null;
+    if (raw[0] != '"' or raw[raw.len - 1] != '"') return null;
+    const inner = raw[1 .. raw.len - 1];
+    if (inner.len == 0) return null;
+    if (inner[0] == '/') return inner;
+    if (inner.len >= 3 and std.ascii.isAlphabetic(inner[0]) and inner[1] == ':' and
+        (inner[2] == '\\' or inner[2] == '/')) return inner;
+    return null;
+}
+
 /// Parse `source` as a `build.zig` and append capability findings. Pure (no IO),
-/// so it is the unit-testable core. Findings are deduplicated per `(code, line)`
-/// so nested field access on one line yields a single finding.
+/// so it is the unit-testable core. Findings are deduplicated per `(code, line)`.
 pub fn scanSource(
     arena: Allocator,
     package: []const u8,
@@ -130,9 +169,10 @@ pub fn scanSource(
         return;
     }
 
-    // Dedup key is "<code-tag>:<line>"; collapses nested field_access hits.
     var seen: std.StringHashMapUnmanaged(void) = .empty;
 
+    // Pass 1: qualified field accesses against the needle table (process,
+    // network, environment, filesystem).
     var i: u32 = 0;
     while (i < ast.nodes.len) : (i += 1) {
         const idx: Ast.Node.Index = @enumFromInt(i);
@@ -141,19 +181,35 @@ pub fn scanSource(
         const src = ast.getNodeSource(idx);
         for (table) |p| {
             if (std.mem.indexOf(u8, src, p.needle) == null) continue;
-
             const line = ast.tokenLocation(0, ast.firstToken(idx)).line + 1;
-            const key = try std.fmt.allocPrint(arena, "{s}:{d}", .{ p.code.slug(), line });
-            if (seen.contains(key)) continue;
-            try seen.put(arena, key, {});
+            const msg = try std.fmt.allocPrint(arena, "{s}: {s}", .{ p.label, std.mem.trim(u8, src, " \t\r\n") });
+            try appendCap(arena, package, out, &seen, p.code, p.severity, msg, line);
+        }
+    }
 
-            try out.append(arena, .{
-                .package = package,
-                .severity = p.severity,
-                .code = p.code,
-                .message = try std.fmt.allocPrint(arena, "{s}: {s}", .{ p.label, std.mem.trim(u8, src, " \t\r\n") }),
-                .location = try std.fmt.allocPrint(arena, "build.zig:{d}", .{line}),
-            });
+    // Pass 2: builtins (`@cImport`, `@embedFile`) and absolute-path string
+    // literals. These are token-level, not qualified field accesses.
+    var t: u32 = 0;
+    while (t < ast.tokens.len) : (t += 1) {
+        switch (ast.tokenTag(t)) {
+            .builtin => {
+                const name = ast.tokenSlice(t);
+                if (std.mem.eql(u8, name, "@cImport")) {
+                    const line = ast.tokenLocation(0, t).line + 1;
+                    try appendCap(arena, package, out, &seen, .cap_cimport, .low, "C interop: @cImport", line);
+                } else if (std.mem.eql(u8, name, "@embedFile")) {
+                    const line = ast.tokenLocation(0, t).line + 1;
+                    try appendCap(arena, package, out, &seen, .cap_embed, .info, "embedded file: @embedFile", line);
+                }
+            },
+            .string_literal => {
+                if (absolutePathLiteral(ast.tokenSlice(t))) |p| {
+                    const line = ast.tokenLocation(0, t).line + 1;
+                    const msg = try std.fmt.allocPrint(arena, "absolute path: {s}", .{p});
+                    try appendCap(arena, package, out, &seen, .cap_filesystem, .info, msg, line);
+                }
+            },
+            else => {},
         }
     }
 }
@@ -252,6 +308,75 @@ test "detects env and filesystem" {
     const codes = try codesFor(arena, src);
     try testing.expect(hasCode(codes, .cap_env));
     try testing.expect(hasCode(codes, .cap_filesystem));
+}
+
+test "detects @cImport and @embedFile builtins" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var out: std.ArrayList(Finding) = .empty;
+    const src =
+        \\const std = @import("std");
+        \\pub fn build(b: *std.Build) void {
+        \\    _ = b;
+        \\    const c = @cImport(@cInclude("stdio.h"));
+        \\    _ = c;
+        \\    const blob = @embedFile("payload.bin");
+        \\    _ = blob;
+        \\}
+    ;
+    try scanSource(arena, "p", src, &out);
+
+    var cimport: ?Finding = null;
+    var embed: ?Finding = null;
+    for (out.items) |f| {
+        if (f.code == .cap_cimport) cimport = f;
+        if (f.code == .cap_embed) embed = f;
+    }
+    try testing.expect(cimport != null);
+    try testing.expectEqual(Severity.low, cimport.?.severity);
+    try testing.expectEqualStrings("build.zig:4", cimport.?.location.?);
+    try testing.expect(embed != null);
+    try testing.expectEqual(Severity.info, embed.?.severity);
+    try testing.expectEqualStrings("build.zig:6", embed.?.location.?);
+    // @import / @cInclude must not be mistaken for a flagged builtin.
+    try testing.expectEqual(@as(usize, 2), out.items.len);
+}
+
+test "flags absolute-path string literals but not relative paths or urls" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var out: std.ArrayList(Finding) = .empty;
+    const src =
+        \\const std = @import("std");
+        \\pub fn build(b: *std.Build) void {
+        \\    b.addIncludePath(.{ .cwd_relative = "/usr/include" });
+        \\    b.addIncludePath(.{ .cwd_relative = "vendor/include" });
+        \\    const url = "https://example.com/x.tar.gz";
+        \\    _ = url;
+        \\}
+    ;
+    try scanSource(arena, "p", src, &out);
+
+    // Only the "/usr/include" literal trips cap_filesystem; the relative path
+    // and the URL do not.
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqual(Code.cap_filesystem, out.items[0].code);
+    try testing.expectEqual(Severity.info, out.items[0].severity);
+    try testing.expectEqualStrings("build.zig:3", out.items[0].location.?);
+}
+
+test "absolutePathLiteral heuristic" {
+    try testing.expectEqualStrings("/etc/passwd", absolutePathLiteral("\"/etc/passwd\"").?);
+    try testing.expectEqualStrings("C:\\Windows", absolutePathLiteral("\"C:\\Windows\"").?);
+    try testing.expectEqualStrings("D:/data", absolutePathLiteral("\"D:/data\"").?);
+    try testing.expect(absolutePathLiteral("\"./relative\"") == null);
+    try testing.expect(absolutePathLiteral("\"vendor/include\"") == null);
+    try testing.expect(absolutePathLiteral("\"https://example.com\"") == null);
+    try testing.expect(absolutePathLiteral("\"\"") == null);
 }
 
 test "nested field access on one line yields a single finding" {
