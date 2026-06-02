@@ -7,7 +7,8 @@ tree straight from the on-disk package cache, checks that every dependency is
 pinned, scans build scripts for risky capabilities, and exports an SBOM
 (CycloneDX / SPDX).
 
-> Requires **Zig 0.16**.
+> Building zonar requires **Zig 0.16**; the prebuilt binary audits projects on
+> older Zig too (see [Compatibility](#compatibility)).
 
 ## Why
 
@@ -86,6 +87,22 @@ exe.root_module.addImport("zonar", zonar.module("zonar"));
 `build.zig.zon`, which is immutable. Don't depend on `git+https://…#v0.2.0`
 instead: a tag is a mutable ref that can be repointed, and zonar would flag it as
 `mutable_ref` (the whole reason this tool exists).
+
+## Compatibility
+
+zonar audits a `build.zig.zon` **statically** — it reads the manifest (and, for
+`--scan`/`--verify`, the on-disk package cache) without invoking the target
+project's compiler. So the prebuilt `zonar` binary audits repositories built with
+**older Zig** too: it is verified against 0.13.x and 0.14.x manifests and handles
+the older shapes — a string `.name`, no `.fingerprint`, and the pre-0.14 `1220…`
+hashes (which it surfaces as `legacy_hash`). For the cache-dependent checks, point
+`--cache` at the project's global cache (the `p/<hash>/` layout has been stable
+since Zig 0.12).
+
+**Building zonar from source and using it as a library (`@import("zonar")`)
+require Zig 0.16.** On an older toolchain, download the standalone binary from a
+[release](https://github.com/luc4sdreyer/zonar/releases) instead of depending on
+the module.
 
 ## Usage
 
