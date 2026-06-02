@@ -57,7 +57,7 @@ jobs:
           echo "e50df2d3b23843c9833fe532cf6da9a442f2c06890b3b6bf4afe6809be97ab22  zlint" \
             | sha256sum -c -
           chmod +x zlint
-      # Lint our own source only — not the vendored third-party build scripts
+      # Lint our own source only, not the vendored third-party build scripts
       # under testdata/integration (zlint walks the whole tree otherwise and
       # flags their unresolved imports).
       - name: Run zlint

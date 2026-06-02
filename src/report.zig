@@ -53,7 +53,7 @@ pub fn renderText(
     tree: resolver.Tree,
     findings: []const Finding,
 ) !void {
-    try out.print("zonar audit — {s}", .{tree.root.name});
+    try out.print("zonar audit: {s}", .{tree.root.name});
     if (tree.root.version) |v| try out.print(" {s}", .{v});
     try out.writeAll("\n");
 

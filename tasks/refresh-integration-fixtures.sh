@@ -3,7 +3,7 @@
 # Regenerates the testdata/integration corpus from pinned upstream commits.
 #
 # This script is NETWORK-DEPENDENT and meant to be run by hand when bumping the
-# pinned commits below — it is deliberately NOT part of CI. The fixtures it
+# pinned commits below. It is deliberately NOT part of CI. The fixtures it
 # produces are audited offline by tasks/integration-test.sh.
 #
 # It fetches each repo's real build.zig.zon at a pinned commit, vendors the two
@@ -30,7 +30,7 @@ ZAP_REPO="zigzap/zap";              ZAP_SHA="f6099ecec496c7ec623c5913baa5b6b5da2
 
 # zigimg, capy's git dependency. ZIGIMG_SHA and ZIGIMG_HASH must match the
 # committish and `.hash` in capy's own build.zig.zon (the hash is the cache
-# directory name zonar looks for) — when bumping CAPY_SHA, re-check both against
+# directory name zonar looks for); when bumping CAPY_SHA, re-check both against
 # capy's manifest, or the vendored package silently resolves as `not_in_cache`.
 ZIGIMG_REPO="zigimg/zigimg"
 ZIGIMG_SHA="74caab5edd7c5f1d2f7d87e5717435ce0f0affa1"

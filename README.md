@@ -120,7 +120,7 @@ zonar audit --verify
 Example against a project with a few problems:
 
 ```
-zonar audit — demo 0.1.0
+zonar audit: demo 0.1.0
 ├─ pinned 1.0.0  ✔ pinned
 │  └─ grandchild (url)  ⚠ unpinned
 ├─ unpinned (url)  ⚠ unpinned
@@ -147,7 +147,7 @@ reports what the script can do at configure time, such as running processes,
 opening network connections, or reading the environment and filesystem:
 
 ```
-zonar audit --scan — demo 0.1.0
+zonar audit: demo 0.1.0
 └─ evil 1.0.0  ✔ pinned
 
 Findings:

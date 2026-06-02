@@ -1,5 +1,5 @@
 //! Resolves a project's transitive dependency tree by reading `build.zig.zon`
-//! manifests off disk — no network required. A `hash` dependency is found at
+//! manifests off disk; no network required. A `hash` dependency is found at
 //! `<cache>/p/<hash>/`; a `path` dependency is found relative to the directory
 //! of the manifest that declares it. Already-visited packages are deduplicated
 //! (and cycles broken) via a visited-set keyed by hash or resolved path.

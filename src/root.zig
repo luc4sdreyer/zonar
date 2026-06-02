@@ -1,4 +1,4 @@
-//! zonar — a supply-chain auditor for the Zig package manager.
+//! zonar: a supply-chain auditor for the Zig package manager.
 //!
 //! In Zig, the content hash is the identity of a package; the url is just one
 //! possible mirror; and every dependency's `build.zig` runs as unsandboxed code

@@ -41,7 +41,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| run_cmd.addArgs(args);
     run_step.dependOn(&run_cmd.step);
 
-    // `zig build test` — runs unit tests from both the library and the CLI module.
+    // `zig build test`: runs unit tests from both the library and the CLI module.
     const mod_tests = b.addTest(.{ .root_module = mod });
     const run_mod_tests = b.addRunArtifact(mod_tests);
     const exe_tests = b.addTest(.{ .root_module = exe.root_module });
@@ -51,7 +51,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_exe_tests.step);
 
-    // `zig build docs` — emit HTML API documentation for the library module into
+    // `zig build docs`: emit HTML API documentation for the library module into
     // zig-out/docs (deployed to GitHub Pages by .github/workflows/pages.yml).
     const docs_lib = b.addLibrary(.{
         .name = "zonar",

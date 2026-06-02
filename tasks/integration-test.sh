@@ -3,7 +3,7 @@
 # Offline golden-file integration test: audits the real-world manifests under
 # testdata/integration/ and diffs zonar's JSON against the committed goldens.
 #
-# Hermetic — no network, no external tools beyond the standard shell. The
+# Hermetic: no network, no external tools beyond the standard shell. The
 # fixtures are refreshed from pinned upstream commits by
 # tasks/refresh-integration-fixtures.sh (run by hand). This script runs in CI.
 #

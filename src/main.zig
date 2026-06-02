@@ -5,7 +5,7 @@ const zonar = @import("zonar");
 const version = zonar.version;
 
 const usage =
-    \\zonar — a supply-chain auditor for the Zig package manager
+    \\zonar: a supply-chain auditor for the Zig package manager
     \\
     \\Usage:
     \\  zonar audit [path] [options]

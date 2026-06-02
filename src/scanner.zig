@@ -8,7 +8,7 @@
 //! `field_access` nodes and matches their source text against a table of known
 //! qualified names. It does NOT do semantic analysis, so aliasing
 //! (`const p = std.process;`) or reflection can hide a capability. Findings are
-//! therefore graded below `high` — they never gate CI — and are phrased as
+//! therefore graded below `high` (they never gate CI) and are phrased as
 //! "here is what to review," never "this is malware."
 
 const std = @import("std");
@@ -57,7 +57,7 @@ const table = [_]Pattern{
 };
 
 /// Scan every cached *dependency* in `tree`, appending capability findings to
-/// `out`. The first-party root package is intentionally skipped — `--scan` audits
+/// `out`. The first-party root package is intentionally skipped: `--scan` audits
 /// third-party build scripts, not your own. Packages are scanned once each
 /// (deduped by directory); duplicates and packages not present on disk are skipped.
 pub fn scanTree(
@@ -330,7 +330,7 @@ test "scanTree reads and scans a cached package's build.zig" {
         \\}
         ,
     });
-    // The root's own build.zig also uses a capability — it must NOT be reported,
+    // The root's own build.zig also uses a capability, but it must NOT be reported,
     // because --scan audits dependencies, not first-party code.
     try tmp.dir.writeFile(io, .{
         .sub_path = "proj/build.zig",
