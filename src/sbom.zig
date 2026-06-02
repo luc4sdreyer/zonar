@@ -308,6 +308,11 @@ fn writeSpdxPackage(
     try json.writeString(out, comp.purl);
     try out.writeAll("}]");
 
+    // SPDX consumers expect these even though zonar can't determine them: we do
+    // not inspect files within a package, and we make no license/copyright claim.
+    try out.writeAll(",\"filesAnalyzed\":false,\"licenseConcluded\":\"NOASSERTION\"," ++
+        "\"licenseDeclared\":\"NOASSERTION\",\"copyrightText\":\"NOASSERTION\"");
+
     // SPDX checksum algorithms are a fixed set that excludes Zig's hash, so the
     // hash and any findings go in the freeform package comment.
     var comment: std.ArrayListUnmanaged(u8) = .empty;
@@ -474,7 +479,19 @@ test "SPDX is well-formed with required fields and DEPENDS_ON" {
     try testing.expectEqualStrings("CC0-1.0", root.get("dataLicense").?.string);
     try testing.expect(root.get("documentNamespace").?.string.len > 0);
     try testing.expect(root.get("creationInfo").?.object.get("created") != null);
-    try testing.expectEqual(@as(usize, 3), root.get("packages").?.array.items.len); // demo, a, b
+
+    const packages = root.get("packages").?.array;
+    try testing.expectEqual(@as(usize, 3), packages.items.len); // demo, a, b
+    // Every package carries the fields SPDX consumers require.
+    for (packages.items) |p| {
+        const pkg = p.object;
+        try testing.expect(pkg.get("SPDXID") != null);
+        try testing.expect(pkg.get("downloadLocation") != null);
+        try testing.expectEqual(false, pkg.get("filesAnalyzed").?.bool);
+        try testing.expectEqualStrings("NOASSERTION", pkg.get("licenseConcluded").?.string);
+        try testing.expectEqualStrings("NOASSERTION", pkg.get("licenseDeclared").?.string);
+        try testing.expectEqualStrings("NOASSERTION", pkg.get("copyrightText").?.string);
+    }
 
     var saw_depends_on = false;
     for (root.get("relationships").?.array.items) |r| {
