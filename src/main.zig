@@ -16,7 +16,7 @@ const usage =
     \\  --json              Emit the audit as JSON instead of a tree
     \\  --sbom=<format>     Emit an SBOM instead of a report (format: cyclonedx | spdx)
     \\  --scan              Scan each dependency's build.zig for risky capabilities
-    \\  --verify            Re-fetch remote deps and verify content hashes (needs network)
+    \\  --verify            Recompute cached deps' content hashes and check them (offline; needs zig)
     \\  --cache <dir>       Override the global package cache directory
     \\  --fail-on=<level>   Exit non-zero at this severity or above
     \\                      (info | low | high | critical | never; default: high)
@@ -161,7 +161,10 @@ fn runAudit(
         try zonar.scanner.scanTree(arena, io, tree, &findings);
     }
     if (opts.verify) {
-        try zonar.verify.verifyTree(arena, io, tree, &findings);
+        // `zig fetch` needs a build.zig in its working directory, so run it from
+        // the audited project's own directory (the root manifest's dir).
+        const project_dir = tree.root.dir orelse ".";
+        try zonar.verify.verifyTree(arena, io, project_dir, tree, &findings);
     }
 
     var stdout_buffer: [4096]u8 = undefined;

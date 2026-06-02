@@ -23,6 +23,11 @@ pub const Manifest = struct {
     version: ?[]const u8 = null,
     minimum_zig_version: ?[]const u8 = null,
     dependencies: []const Dependency = &.{},
+    /// True if `.name` was written as a string literal (the pre-0.14 form)
+    /// rather than an enum literal. A current Zig requires an enum literal and
+    /// will not parse a string-named manifest; we still parse it leniently and
+    /// flag it as a staleness signal.
+    name_is_legacy_string: bool = false,
 };
 
 pub const Diagnostics = struct {
@@ -54,7 +59,12 @@ pub fn parse(arena: Allocator, source: [:0]const u8, diag: ?*Diagnostics) ParseE
     const root = Zoir.Node.Index.root.get(zoir);
 
     var manifest: Manifest = .{};
-    manifest.name = try dupeEnumOrString(arena, zoir, field(zoir, root, "name"));
+    const name_node = field(zoir, root, "name");
+    manifest.name = try dupeEnumOrString(arena, zoir, name_node);
+    manifest.name_is_legacy_string = if (name_node) |n| switch (n) {
+        .string_literal => true,
+        else => false,
+    } else false;
     manifest.version = try dupeString(arena, field(zoir, root, "version"));
     manifest.minimum_zig_version = try dupeString(arena, field(zoir, root, "minimum_zig_version"));
 
@@ -171,6 +181,22 @@ test "parse manifest with mixed dependencies" {
     try testing.expect(local.url == null);
 
     try testing.expect(m.dependencies[3].lazy);
+}
+
+test "parse records enum vs string name form" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // Modern enum-literal name.
+    const modern = try parse(arena, ".{ .name = .x, .version = \"0.0.0\", .dependencies = .{} }", null);
+    try testing.expectEqualStrings("x", modern.name.?);
+    try testing.expect(!modern.name_is_legacy_string);
+
+    // Pre-0.14 string name: still parsed leniently, but flagged.
+    const legacy = try parse(arena, ".{ .name = \"x\", .version = \"0.0.0\", .dependencies = .{} }", null);
+    try testing.expectEqualStrings("x", legacy.name.?);
+    try testing.expect(legacy.name_is_legacy_string);
 }
 
 test "parse manifest with empty dependencies" {

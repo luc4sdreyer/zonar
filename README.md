@@ -14,15 +14,15 @@ pinned, scans build scripts for risky capabilities, and exports an SBOM
 
 Three facts about Zig's package model shape this tool:
 
-- **The hash is the identity.** A package doesn't come from a URL; it comes from
+- The hash is the identity. A package doesn't come from a URL; it comes from
   a content hash. The URL is just one mirror that might serve bytes matching that
   hash. So the question "is this dependency pinned?" reduces to "does it have a
   hash, and is the hash the thing being trusted?"
-- **The cache already has everything.** Once dependencies are fetched they live
+- The cache already has everything. Once dependencies are fetched they live
   under the global cache at `<cache>/p/<hash>/`, each with its own
   `build.zig.zon`. The whole transitive tree can be resolved by reading files,
   with no network needed.
-- **`build.zig` is code.** Every dependency's `build.zig` runs as unsandboxed
+- `build.zig` is code. Every dependency's `build.zig` runs as unsandboxed
   code at configure time. Auditing what those scripts can do is the natural next
   step (see [Roadmap](#roadmap)).
 
@@ -83,7 +83,7 @@ const zonar = b.dependency("zonar", .{});
 exe.root_module.addImport("zonar", zonar.module("zonar"));
 ```
 
-`zig fetch --save` records the dependency by its **content hash** in your
+`zig fetch --save` records the dependency by its content hash in your
 `build.zig.zon`, which is immutable. Don't depend on `git+https://…#v0.2.0`
 instead: a tag is a mutable ref that can be repointed, and zonar would flag it as
 `mutable_ref` (the whole reason this tool exists).
@@ -94,8 +94,9 @@ zonar audits a `build.zig.zon` statically: it reads the manifest (and, for
 `--scan`/`--verify`, the on-disk package cache) without invoking the target
 project's compiler. So the prebuilt `zonar` binary audits repositories built with
 older Zig too. It is verified against 0.13.x and 0.14.x manifests and handles the
-older shapes: a string `.name`, no `.fingerprint`, and the pre-0.14 `1220…` hashes
-(which it surfaces as `legacy_hash`). For the cache-dependent checks, point
+older shapes: a string `.name` (surfaced as `deprecated_name`), no `.fingerprint`,
+and the pre-0.14 `1220…` hashes (surfaced as `legacy_hash`). For the
+cache-dependent checks, point
 `--cache` at the project's global cache (the `p/<hash>/` layout has been stable
 since Zig 0.12).
 
@@ -113,7 +114,7 @@ zonar audit
 # Audit a specific manifest, as JSON:
 zonar audit path/to/build.zig.zon --json
 
-# Also re-fetch remote deps and verify their content hashes (needs network):
+# Also recompute each cached dependency's content hash and check it (offline):
 zonar audit --verify
 ```
 
@@ -158,7 +159,7 @@ Findings:
 Summary: 0 critical, 0 high, 2 low, 0 info
 ```
 
-Capabilities are a **report, not a verdict**. They are graded below `high` and
+Capabilities are graded below `high` and
 never affect the exit code: a build script using `addSystemCommand` is suspicious
 to a human, but completely normal in many real projects. The scan is also
 intentionally shallow. It matches qualified names in the AST and cannot follow
@@ -168,7 +169,7 @@ review," never proof of anything.
 ### SBOM export (`--sbom`)
 
 zonar can emit a Software Bill of Materials of the resolved dependency graph, in
-**CycloneDX 1.6** or **SPDX 2.3** (JSON):
+`CycloneDX 1.6` or `SPDX 2.3` (JSON):
 
 ```sh
 zonar audit --sbom=cyclonedx > sbom.cdx.json
@@ -177,7 +178,7 @@ zonar audit --sbom=spdx      > sbom.spdx.json
 
 Notes specific to Zig:
 
-- A package's identity is its **content hash**, so that hash is used directly as the
+- A package's identity is its content hash, so that hash is used directly as the
   CycloneDX `bom-ref`. It is *not* a standard SHA-256 digest, so it is carried as a
   `zonar:zig-hash` property (CycloneDX) or the package comment (SPDX) rather than
   masquerading in a `hashes`/`checksums` field.
@@ -185,7 +186,7 @@ Notes specific to Zig:
   Zig has no registered PURL type.
 - Any findings from the same run ride along. An `unpinned` dependency, for example,
   becomes a `zonar:finding:unpinned` property, so the SBOM flags its own weak spots.
-- **CycloneDX output is reproducible** (no embedded timestamp or serial number), so it
+- CycloneDX output is reproducible (no embedded timestamp or serial number), so it
   diffs cleanly in version control. SPDX requires a unique document namespace and a
   creation timestamp, so SPDX output is not byte-reproducible.
 
@@ -199,8 +200,9 @@ You can generate an SBOM and gate CI in one command.
 | `unpinned` | high | A `url`/`git` dependency with no `hash`. Content is not pinned. |
 | `mutable_ref` | low | A git dependency whose committish isn't an immutable commit SHA. The hash still pins the content, but the URL provenance is mutable. |
 | `legacy_hash` | info | A `hash` in the pre-0.14 `1220…` multihash format. Content is pinned, but a current Zig computes a different hash format, so the pin won't match a freshly-fetched package. |
+| `deprecated_name` | info | The package's manifest declares `.name` as a string (the pre-0.14 form). A current Zig requires an enum literal and won't parse the manifest. |
 | `not_in_cache` | info | The package isn't fetched yet, so it couldn't be inspected. |
-| `hash_mismatch` | critical | `--verify` only: the re-fetched content's hash doesn't match the declared hash. |
+| `hash_mismatch` | critical | `--verify` only: a cached package's recomputed content hash doesn't match the hash it's filed under (the cached content has been modified). |
 | `cap_exec` | low | `--scan` only: the build script can execute external processes. |
 | `cap_network` | low | `--scan` only: the build script can access the network. |
 | `cap_env` | info | `--scan` only: the build script reads environment variables. |
@@ -218,7 +220,7 @@ the weak spots and leaves the judgement to you.
 | `--json` | Emit the audit as JSON (`{ root, findings, summary }`) instead of a tree. |
 | `--sbom=<format>` | Emit an SBOM instead of a report. `format` is `cyclonedx` or `spdx`. |
 | `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
-| `--verify` | Re-fetch remote dependencies with `zig fetch` and compare hashes. |
+| `--verify` | Recompute each cached dependency's content hash with `zig fetch` and check it against the hash it's filed under (offline; needs `zig` and a `build.zig` in the project). |
 | `--cache <dir>` | Override the global cache directory (defaults to `ZIG_GLOBAL_CACHE_DIR`, then `zig env`). |
 | `--fail-on=<level>` | Exit non-zero at this severity or above: `info`, `low`, `high` (default), `critical`, or `never`. |
 | `-h`, `--help` | Show help. |
@@ -249,7 +251,7 @@ the full dev loop, linting, and how releases are cut and verified.
 Done: tree resolution, integrity checks, the `--scan` `build.zig` capability scanner,
 and `--sbom` export (CycloneDX / SPDX) with `--fail-on` CI gating. Planned:
 
-- **More capabilities** for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
+- More capabilities for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
   string literals, and following simple aliasing.
 - A native re-implementation of Zig's content hashing (today `--verify` shells
   out to `zig fetch`).

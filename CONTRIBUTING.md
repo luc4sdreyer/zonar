@@ -64,7 +64,7 @@ minisign -G -W -p minisign.pub -s minisign.key   # -W: no password, for CI
 ```
 
 Commit `minisign.pub` to the repo root, put its fingerprint in the README, and
-add the **contents** of `minisign.key` as the `MINISIGN_SECRET_KEY` repository
+add the contents of `minisign.key` as the `MINISIGN_SECRET_KEY` repository
 secret (Settings → Secrets and variables → Actions). Keep `minisign.key` off the
 repo and out of your shell history.
 

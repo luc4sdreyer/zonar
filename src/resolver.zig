@@ -32,6 +32,10 @@ pub const Node = struct {
     hash: ?[]const u8 = null,
     path: ?[]const u8 = null,
     lazy: bool = false,
+    /// True if this package's own manifest declares `.name` as a string literal
+    /// (the pre-0.14 form). Set once the manifest is read; a current Zig would
+    /// reject such a manifest. Surfaced as the `deprecated_name` finding.
+    name_is_legacy_string: bool = false,
     status: Status = .ok,
     /// True if this package was already visited elsewhere in the tree; its
     /// children are elided to avoid repetition and cycles.
@@ -83,6 +87,7 @@ pub fn resolve(
         .kind = .root,
         .status = .ok,
         .dir = base_dir,
+        .name_is_legacy_string = m.name_is_legacy_string,
     };
     root.children = try expandDeps(&ctx, m.dependencies, base_dir);
     return .{ .root = root };
@@ -141,6 +146,7 @@ fn expandDep(ctx: *Context, dep: manifest.Dependency, base_dir: []const u8) Reso
             if (readManifest(ctx.arena, ctx.io, manifest_path.?)) |src| {
                 if (manifest.parse(ctx.arena, src, null)) |m| {
                     node.version = m.version;
+                    node.name_is_legacy_string = m.name_is_legacy_string;
                 } else |_| {}
             } else |_| {}
             return node;
@@ -159,6 +165,7 @@ fn expandDep(ctx: *Context, dep: manifest.Dependency, base_dir: []const u8) Reso
     };
 
     node.version = m.version;
+    node.name_is_legacy_string = m.name_is_legacy_string;
     node.status = .ok;
     node.children = try expandDeps(ctx, m.dependencies, child_base);
     return node;
@@ -250,4 +257,55 @@ test "resolve walks a transitive tree, dedups, and flags missing packages" {
 
     const missing = tree.root.children[2];
     try testing.expectEqual(Status.not_in_cache, missing.status);
+}
+
+test "resolve records a cached dependency's legacy string name" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A cached package whose own manifest uses the pre-0.14 string `.name`.
+    const dep_hash = "legacy-1.0.0-AAAAAAAAAAAA";
+    {
+        var d = try tmp.dir.createDirPathOpen(io, "cache/p/" ++ dep_hash, .{});
+        d.close(io);
+    }
+    {
+        var d = try tmp.dir.createDirPathOpen(io, "proj", .{});
+        d.close(io);
+    }
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/" ++ dep_hash ++ "/build.zig.zon",
+        .data =
+        \\.{ .name = "legacy", .version = "1.0.0", .dependencies = .{}, .paths = .{""} }
+        ,
+    });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "proj/build.zig.zon",
+        .data =
+        \\.{
+        \\    .name = .demo,
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{
+        \\        .old = .{ .url = "https://ex/c.tar.gz", .hash = "legacy-1.0.0-AAAAAAAAAAAA" },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+        ,
+    });
+
+    const tmp_prefix = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path[0..]});
+    const cache_root = try std.fmt.allocPrint(arena, "{s}/cache", .{tmp_prefix});
+    const root_path = try std.fmt.allocPrint(arena, "{s}/proj/build.zig.zon", .{tmp_prefix});
+
+    const tree = try resolve(arena, io, .{ .root = cache_root }, root_path);
+
+    // Root is modern (enum name); the dependency is the legacy one.
+    try testing.expect(!tree.root.name_is_legacy_string);
+    try testing.expectEqual(@as(usize, 1), tree.root.children.len);
+    try testing.expect(tree.root.children[0].name_is_legacy_string);
 }

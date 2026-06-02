@@ -47,6 +47,9 @@ pub const Code = enum {
     /// still pinned, but a current Zig computes a different hash format, so the
     /// pin will not match a freshly-fetched package.
     legacy_hash,
+    /// The package's manifest declares `.name` as a string literal (the pre-0.14
+    /// form). A current Zig requires an enum literal and will not parse it.
+    deprecated_name,
     /// The package was not found in the cache, so it could not be inspected.
     not_in_cache,
     /// `--verify`: the recomputed content hash did not match the declared hash.
@@ -141,6 +144,22 @@ pub fn findingsFor(arena: Allocator, node: resolver.Node, out: *std.ArrayList(Fi
                 ),
             });
         }
+    }
+
+    // A string `.name` is a pre-0.14 manifest shape. The content may be fine,
+    // but a current Zig cannot parse the manifest, so the package is stale and
+    // cannot be re-fetched without an edit. zonar parses it leniently anyway.
+    if (node.name_is_legacy_string) {
+        try out.append(arena, .{
+            .package = node.name,
+            .severity = .info,
+            .code = .deprecated_name,
+            .message = try std.fmt.allocPrint(
+                arena,
+                "manifest declares `.name` as a string (pre-0.14 form); a current Zig requires an enum literal and will not parse this manifest",
+                .{},
+            ),
+        });
     }
 
     if (node.status == .not_in_cache) {
@@ -262,6 +281,49 @@ test "findingsFor emits both legacy_hash and not_in_cache when applicable" {
     try testing.expectEqual(@as(usize, 2), out.items.len);
     try testing.expectEqual(Code.legacy_hash, out.items[0].code);
     try testing.expectEqual(Code.not_in_cache, out.items[1].code);
+}
+
+test "findingsFor flags a string-named manifest as deprecated_name" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var out: std.ArrayList(Finding) = .empty;
+    const node: resolver.Node = .{
+        .name = "dep",
+        .kind = .git,
+        .url = "git+https://x/r#1234567890abcdef1234567890abcdef12345678",
+        .hash = "r-1.0.0-AAAA",
+        .name_is_legacy_string = true,
+    };
+    try findingsFor(arena, node, &out);
+
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqual(Code.deprecated_name, out.items[0].code);
+    try testing.expectEqual(Severity.info, out.items[0].severity);
+}
+
+test "findingsFor emits deprecated_name after legacy_hash" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A pre-0.14 dependency typically has both a string name and a legacy hash.
+    // Ordering is fixed (legacy_hash then deprecated_name) so JSON goldens are
+    // deterministic.
+    var out: std.ArrayList(Finding) = .empty;
+    const node: resolver.Node = .{
+        .name = "dep",
+        .kind = .url,
+        .url = "https://x/y.tar.gz",
+        .hash = "12206038da3a8d42de25babfadaa3b8fb01c223850a1f1ce309034172d150df61a8c",
+        .name_is_legacy_string = true,
+    };
+    try findingsFor(arena, node, &out);
+
+    try testing.expectEqual(@as(usize, 2), out.items.len);
+    try testing.expectEqual(Code.legacy_hash, out.items[0].code);
+    try testing.expectEqual(Code.deprecated_name, out.items[1].code);
 }
 
 test "findingsFor flags unpinned url dependency" {
