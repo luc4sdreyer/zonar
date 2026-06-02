@@ -60,7 +60,7 @@ regen_golden() {
   local name="$1" dir="$CORPUS/$1"
   echo "  $name: regenerating expected.json"
   "$ZONAR" audit "$dir/build.zig.zon" --cache "$dir/cache" --scan --fail-on=never --json \
-    | python3 -m json.tool > "$dir/expected.json"
+    > "$dir/expected.json"
 }
 
 echo "Refreshing integration corpus under $CORPUS"

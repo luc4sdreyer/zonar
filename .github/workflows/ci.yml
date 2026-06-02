@@ -99,6 +99,5 @@ jobs:
           version: 0.16.0
       - run: zig build
       # Offline: audits the pinned real-world manifests under testdata/integration
-      # and diffs zonar's JSON against the committed goldens. `python3` is
-      # preinstalled on the runner and only used to pretty-print for the diff.
+      # and diffs zonar's JSON against the committed goldens. No external tools.
       - run: ./tasks/integration-test.sh
