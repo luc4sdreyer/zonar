@@ -19,6 +19,7 @@ pub const integrity = @import("integrity.zig");
 pub const scanner = @import("scanner.zig");
 pub const json = @import("json.zig");
 pub const sbom = @import("sbom.zig");
+pub const sarif = @import("sarif.zig");
 pub const verify = @import("verify.zig");
 pub const report = @import("report.zig");
 
@@ -40,6 +41,7 @@ test {
     _ = scanner;
     _ = json;
     _ = sbom;
+    _ = sarif;
     _ = verify;
     _ = report;
 }

@@ -14,6 +14,7 @@ const usage =
     \\
     \\Options:
     \\  --json              Emit the audit as JSON instead of a tree
+    \\  --sarif             Emit findings as SARIF 2.1.0 (for GitHub code scanning)
     \\  --sbom=<format>     Emit an SBOM instead of a report (format: cyclonedx | spdx)
     \\  --scan              Scan each dependency's build.zig for risky capabilities
     \\  --verify            Recompute cached deps' content hashes and check them (offline; needs zig)
@@ -50,6 +51,7 @@ const FailOn = enum {
 const Options = struct {
     path: []const u8 = "build.zig.zon",
     json: bool = false,
+    sarif: bool = false,
     sbom: Sbom = .none,
     scan: bool = false,
     verify: bool = false,
@@ -114,6 +116,8 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
         if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) return .version;
         if (std.mem.eql(u8, arg, "--json")) {
             opts.json = true;
+        } else if (std.mem.eql(u8, arg, "--sarif")) {
+            opts.sarif = true;
         } else if (std.mem.startsWith(u8, arg, "--sbom=")) {
             opts.sbom = std.meta.stringToEnum(Sbom, arg["--sbom=".len..]) orelse
                 return .{ .@"error" = "--sbom must be one of: cyclonedx, spdx" };
@@ -174,7 +178,9 @@ fn runAudit(
     switch (opts.sbom) {
         .cyclonedx => try zonar.sbom.renderCycloneDx(arena, stdout, tree, findings.items),
         .spdx => try zonar.sbom.renderSpdx(arena, io, stdout, tree, findings.items),
-        .none => if (opts.json)
+        .none => if (opts.sarif)
+            try zonar.sarif.renderSarif(arena, stdout, opts.path, findings.items)
+        else if (opts.json)
             try zonar.report.renderJson(stdout, tree, findings.items)
         else
             try zonar.report.renderText(arena, stdout, tree, findings.items),
@@ -217,6 +223,13 @@ test "parseArgs reads flags and path" {
     try std.testing.expect(parsed.audit.json);
     try std.testing.expect(parsed.audit.verify);
     try std.testing.expectEqualStrings("/tmp/c", parsed.audit.cache_override.?);
+}
+
+test "parseArgs reads --sarif" {
+    const parsed = parseArgs(&[_][:0]const u8{ "zonar", "--sarif" });
+    try std.testing.expect(parsed == .audit);
+    try std.testing.expect(parsed.audit.sarif);
+    try std.testing.expect(!parsed.audit.json);
 }
 
 test "parseArgs surfaces --cache without value" {

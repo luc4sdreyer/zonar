@@ -13,6 +13,11 @@ All notable changes to this project are documented here. The format is based on
   and a hardcoded absolute path literal such as `/etc/...` or `C:\...` (info,
   reported under `cap_filesystem`). Alias-following is still out of scope, so the
   scan remains a "here is what to review" signal, not proof.
+- `--sarif`: emit findings as a SARIF 2.1.0 log for GitHub code scanning, so they
+  appear in the Security tab and as pull-request annotations. Results are anchored
+  to the project's `build.zig.zon` with the dependency in a logical location;
+  severities map to SARIF levels (info → note, low → warning, high/critical →
+  error) and each rule carries a `security-severity` for GitHub's bucketing.
 - `--scan` now follows `@import` of sibling `.zig` files within a package, so a
   capability moved out of `build.zig` into a helper file is still reported
   (against that file's path). Import-following stays inside the package directory:
