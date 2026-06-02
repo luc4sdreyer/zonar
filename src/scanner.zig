@@ -1,7 +1,11 @@
 //! The `--scan` capability scanner. For each resolved dependency that is present
 //! in the cache, it parses the package's `build.zig` with the compiler's own AST
 //! (`std.zig.Ast`) and reports what the build script is *capable of*: executing
-//! processes, accessing the network, reading the environment or filesystem.
+//! processes, accessing the network, reading the environment or filesystem,
+//! importing C headers (`@cImport`), or embedding files (`@embedFile`). It
+//! follows `@import` of sibling `.zig` files within the package, so a capability
+//! moved out of `build.zig` into a helper file is still seen (it never leaves the
+//! package directory).
 //!
 //! Build scripts run as unsandboxed code at configure time, so this is the
 //! question that matters most. But the analysis is deliberately humble: it walks
@@ -96,25 +100,60 @@ fn scanPackage(
     dir: []const u8,
     out: *std.ArrayList(Finding),
 ) Allocator.Error!void {
-    const path = try std.fs.path.join(arena, &.{ dir, "build.zig" });
-    const source = readSource(arena, io, path) catch |err| switch (err) {
-        // Out of memory must not be masked as a clean scan: propagate it so the
-        // audit fails loudly rather than silently omitting a dependency.
-        error.OutOfMemory => return error.OutOfMemory,
-        // No build.zig (some packages are data-only) or otherwise unreadable:
-        // nothing to scan here.
-        else => return,
-    };
-    try scanSource(arena, package, source, out);
+    // A build script can hide capabilities in a sibling file it `@import`s, so we
+    // follow those imports. We walk the file graph breadth-first starting at
+    // build.zig, scanning each .zig file once, and never leaving the package
+    // directory (a `../` import that escapes `dir` is not followed).
+    const dir_abs = std.fs.path.resolve(arena, &.{dir}) catch return;
+    const start = std.fs.path.join(arena, &.{ dir_abs, "build.zig" }) catch return;
+
+    var visited: std.StringHashMapUnmanaged(void) = .empty;
+    var queue: std.ArrayListUnmanaged([]const u8) = .empty;
+    try queue.append(arena, start);
+
+    var head: usize = 0;
+    while (head < queue.items.len) : (head += 1) {
+        const file_abs = queue.items[head];
+        if (visited.contains(file_abs)) continue;
+        try visited.put(arena, file_abs, {});
+
+        const source = readSource(arena, io, file_abs) catch |err| switch (err) {
+            // Out of memory must not be masked as a clean scan: propagate it so
+            // the audit fails loudly rather than silently omitting a dependency.
+            error.OutOfMemory => return error.OutOfMemory,
+            // A data-only package (no build.zig) or a missing/unreadable imported
+            // file: nothing to scan there, move on.
+            else => continue,
+        };
+
+        // file_abs is always under dir_abs, so the package-relative path is just
+        // the suffix after the directory and its separator.
+        const rel = if (file_abs.len > dir_abs.len + 1 and std.mem.startsWith(u8, file_abs, dir_abs))
+            file_abs[dir_abs.len + 1 ..]
+        else
+            std.fs.path.basename(file_abs);
+
+        var imports: std.ArrayListUnmanaged([]const u8) = .empty;
+        try scanSource(arena, package, rel, source, out, &imports);
+
+        const file_dir = std.fs.path.dirname(file_abs) orelse dir_abs;
+        for (imports.items) |imp| {
+            const target = std.fs.path.resolve(arena, &.{ file_dir, imp }) catch continue;
+            if (withinDir(target, dir_abs)) try queue.append(arena, target);
+        }
+    }
 }
 
 /// Append a capability finding, deduplicated per `(code, line)` so repeated hits
-/// on one line collapse to a single finding. `message` is the prebuilt detail.
+/// on one line collapse to a single finding. `message` is the prebuilt detail;
+/// `rel_path` is the scanned file relative to the package (e.g. `build.zig` or
+/// `build/helpers.zig`), used for the location.
 fn appendCap(
     arena: Allocator,
     package: []const u8,
     out: *std.ArrayList(Finding),
     seen: *std.StringHashMapUnmanaged(void),
+    rel_path: []const u8,
     code: Code,
     severity: Severity,
     message: []const u8,
@@ -128,8 +167,16 @@ fn appendCap(
         .severity = severity,
         .code = code,
         .message = message,
-        .location = try std.fmt.allocPrint(arena, "build.zig:{d}", .{line}),
+        .location = try std.fmt.allocPrint(arena, "{s}:{d}", .{ rel_path, line }),
     });
+}
+
+/// Return the inner text of a double-quoted string-literal token (quotes
+/// stripped), or null if `raw` is not a simple `"..."` token. No escape
+/// decoding: callers use it for paths, which do not contain escapes.
+fn unquote(raw: []const u8) ?[]const u8 {
+    if (raw.len < 2 or raw[0] != '"' or raw[raw.len - 1] != '"') return null;
+    return raw[1 .. raw.len - 1];
 }
 
 /// If `raw` (a quoted string-literal token, quotes included) looks like an
@@ -138,9 +185,7 @@ fn appendCap(
 /// (Windows). A relative path, a URL (`https://...`), or a format string does
 /// not match because none of them start that way.
 fn absolutePathLiteral(raw: []const u8) ?[]const u8 {
-    if (raw.len < 3) return null;
-    if (raw[0] != '"' or raw[raw.len - 1] != '"') return null;
-    const inner = raw[1 .. raw.len - 1];
+    const inner = unquote(raw) orelse return null;
     if (inner.len == 0) return null;
     if (inner[0] == '/') return inner;
     if (inner.len >= 3 and std.ascii.isAlphabetic(inner[0]) and inner[1] == ':' and
@@ -148,13 +193,26 @@ fn absolutePathLiteral(raw: []const u8) ?[]const u8 {
     return null;
 }
 
-/// Parse `source` as a `build.zig` and append capability findings. Pure (no IO),
-/// so it is the unit-testable core. Findings are deduplicated per `(code, line)`.
+/// True if `target` (an absolute path) is `dir_abs` itself or a path under it.
+/// Used to keep import-following from escaping the package directory.
+fn withinDir(target: []const u8, dir_abs: []const u8) bool {
+    if (!std.mem.startsWith(u8, target, dir_abs)) return false;
+    if (target.len == dir_abs.len) return true;
+    return target[dir_abs.len] == std.fs.path.sep;
+}
+
+/// Parse one source file (`rel_path` is its path relative to the package) and
+/// append capability findings. Pure (no IO), so it is the unit-testable core.
+/// Findings are deduplicated per `(code, line)`. If `imports` is non-null, the
+/// relative path of every `@import("...zig")` is collected into it (as written),
+/// for the caller to follow.
 pub fn scanSource(
     arena: Allocator,
     package: []const u8,
+    rel_path: []const u8,
     source: [:0]const u8,
     out: *std.ArrayList(Finding),
+    imports: ?*std.ArrayListUnmanaged([]const u8),
 ) Allocator.Error!void {
     var ast = try Ast.parse(arena, source, .zig);
     defer ast.deinit(arena);
@@ -164,7 +222,7 @@ pub fn scanSource(
             .package = package,
             .severity = .info,
             .code = .unscannable,
-            .message = try std.fmt.allocPrint(arena, "build.zig could not be parsed; not scanned", .{}),
+            .message = try std.fmt.allocPrint(arena, "{s} could not be parsed; not scanned", .{rel_path}),
         });
         return;
     }
@@ -183,12 +241,12 @@ pub fn scanSource(
             if (std.mem.indexOf(u8, src, p.needle) == null) continue;
             const line = ast.tokenLocation(0, ast.firstToken(idx)).line + 1;
             const msg = try std.fmt.allocPrint(arena, "{s}: {s}", .{ p.label, std.mem.trim(u8, src, " \t\r\n") });
-            try appendCap(arena, package, out, &seen, p.code, p.severity, msg, line);
+            try appendCap(arena, package, out, &seen, rel_path, p.code, p.severity, msg, line);
         }
     }
 
-    // Pass 2: builtins (`@cImport`, `@embedFile`) and absolute-path string
-    // literals. These are token-level, not qualified field accesses.
+    // Pass 2: builtins (`@cImport`, `@embedFile`, `@import`) and absolute-path
+    // string literals. These are token-level, not qualified field accesses.
     var t: u32 = 0;
     while (t < ast.tokens.len) : (t += 1) {
         switch (ast.tokenTag(t)) {
@@ -196,17 +254,30 @@ pub fn scanSource(
                 const name = ast.tokenSlice(t);
                 if (std.mem.eql(u8, name, "@cImport")) {
                     const line = ast.tokenLocation(0, t).line + 1;
-                    try appendCap(arena, package, out, &seen, .cap_cimport, .low, "C interop: @cImport", line);
+                    try appendCap(arena, package, out, &seen, rel_path, .cap_cimport, .low, "C interop: @cImport", line);
                 } else if (std.mem.eql(u8, name, "@embedFile")) {
                     const line = ast.tokenLocation(0, t).line + 1;
-                    try appendCap(arena, package, out, &seen, .cap_embed, .info, "embedded file: @embedFile", line);
+                    try appendCap(arena, package, out, &seen, rel_path, .cap_embed, .info, "embedded file: @embedFile", line);
+                } else if (std.mem.eql(u8, name, "@import")) {
+                    // Collect `@import("foo.zig")` so the caller can follow it.
+                    // Token shape: `@import` `(` `"..."`. A non-.zig import (a
+                    // module like "std") or a non-literal argument is ignored.
+                    if (imports) |imps| {
+                        if (t + 2 < ast.tokens.len and ast.tokenTag(t + 1) == .l_paren and
+                            ast.tokenTag(t + 2) == .string_literal)
+                        {
+                            if (unquote(ast.tokenSlice(t + 2))) |p| {
+                                if (std.mem.endsWith(u8, p, ".zig")) try imps.append(arena, p);
+                            }
+                        }
+                    }
                 }
             },
             .string_literal => {
                 if (absolutePathLiteral(ast.tokenSlice(t))) |p| {
                     const line = ast.tokenLocation(0, t).line + 1;
                     const msg = try std.fmt.allocPrint(arena, "absolute path: {s}", .{p});
-                    try appendCap(arena, package, out, &seen, .cap_filesystem, .info, msg, line);
+                    try appendCap(arena, package, out, &seen, rel_path, .cap_filesystem, .info, msg, line);
                 }
             },
             else => {},
@@ -222,7 +293,7 @@ const testing = std.testing;
 
 fn codesFor(arena: Allocator, source: [:0]const u8) ![]Code {
     var out: std.ArrayList(Finding) = .empty;
-    try scanSource(arena, "test", source, &out);
+    try scanSource(arena, "test", "build.zig", source, &out, null);
     const codes = try arena.alloc(Code, out.items.len);
     for (out.items, 0..) |f, i| codes[i] = f.code;
     return codes;
@@ -264,7 +335,7 @@ test "detects process execution" {
         \\    _ = run;
         \\}
     ;
-    try scanSource(arena, "evil", src, &out);
+    try scanSource(arena, "evil", "build.zig", src, &out, null);
     try testing.expectEqual(@as(usize, 1), out.items.len);
     try testing.expectEqual(Code.cap_exec, out.items[0].code);
     try testing.expectEqual(Severity.low, out.items[0].severity);
@@ -326,7 +397,7 @@ test "detects @cImport and @embedFile builtins" {
         \\    _ = blob;
         \\}
     ;
-    try scanSource(arena, "p", src, &out);
+    try scanSource(arena, "p", "build.zig", src, &out, null);
 
     var cimport: ?Finding = null;
     var embed: ?Finding = null;
@@ -359,7 +430,7 @@ test "flags absolute-path string literals but not relative paths or urls" {
         \\    _ = url;
         \\}
     ;
-    try scanSource(arena, "p", src, &out);
+    try scanSource(arena, "p", "build.zig", src, &out, null);
 
     // Only the "/usr/include" literal trips cap_filesystem; the relative path
     // and the URL do not.
@@ -394,7 +465,7 @@ test "nested field access on one line yields a single finding" {
         \\    _ = c;
         \\}
     ;
-    try scanSource(arena, "p", src, &out);
+    try scanSource(arena, "p", "build.zig", src, &out, null);
     try testing.expectEqual(@as(usize, 1), out.items.len);
 }
 
@@ -404,7 +475,7 @@ test "unparseable build.zig degrades gracefully" {
     const arena = arena_state.allocator();
 
     var out: std.ArrayList(Finding) = .empty;
-    try scanSource(arena, "broken", "pub fn build(b: *std.Build) void { this is not zig", &out);
+    try scanSource(arena, "broken", "build.zig", "pub fn build(b: *std.Build) void { this is not zig", &out, null);
     // One info note coded as unscannable (not a capability), no crash.
     try testing.expectEqual(@as(usize, 1), out.items.len);
     try testing.expectEqual(Severity.info, out.items[0].severity);
@@ -479,4 +550,85 @@ test "scanTree reads and scans a cached package's build.zig" {
     try testing.expectEqual(Code.cap_exec, out.items[0].code);
     try testing.expectEqualStrings("evil", out.items[0].package);
     try testing.expectEqualStrings("build.zig:3", out.items[0].location.?);
+}
+
+test "scanTree follows local @import but not imports that escape the package" {
+    const io = std.testing.io;
+    var tmp = std.testing.tmpDir(.{});
+    defer tmp.cleanup();
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    const hash = "imp-1.0.0-AAAAAAAAAAAA";
+    inline for (.{ "cache/p/" ++ hash ++ "/build", "proj" }) |sub| {
+        var d = try tmp.dir.createDirPathOpen(io, sub, .{});
+        d.close(io);
+    }
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/" ++ hash ++ "/build.zig.zon",
+        .data = ".{ .name = .imp, .version = \"1.0.0\", .dependencies = .{}, .paths = .{\"\"} }",
+    });
+    // The package's build.zig hides its capability in an imported helper, and
+    // also tries to import a file outside the package directory.
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/" ++ hash ++ "/build.zig",
+        .data =
+        \\const std = @import("std");
+        \\const helpers = @import("build/helpers.zig");
+        \\const escape = @import("../evil.zig");
+        \\pub fn build(b: *std.Build) void {
+        \\    helpers.doit(b);
+        \\    escape.doit(b);
+        \\}
+        ,
+    });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/" ++ hash ++ "/build/helpers.zig",
+        .data =
+        \\const std = @import("std");
+        \\pub fn doit(b: *std.Build) void {
+        \\    _ = b.addSystemCommand(&.{"curl"});
+        \\}
+        ,
+    });
+    // A file one level up from the package: it must NOT be scanned even though
+    // build.zig imports it, because it is outside the package directory.
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "cache/p/evil.zig",
+        .data =
+        \\const std = @import("std");
+        \\pub fn doit(b: *std.Build) void {
+        \\    _ = b.addSystemCommand(&.{"wget"});
+        \\}
+        ,
+    });
+    try tmp.dir.writeFile(io, .{
+        .sub_path = "proj/build.zig.zon",
+        .data =
+        \\.{
+        \\    .name = .demo,
+        \\    .version = "0.1.0",
+        \\    .dependencies = .{
+        \\        .imp = .{ .url = "https://x/i.tar.gz", .hash = "imp-1.0.0-AAAAAAAAAAAA" },
+        \\    },
+        \\    .paths = .{""},
+        \\}
+        ,
+    });
+
+    const tmp_prefix = try std.fmt.allocPrint(arena, ".zig-cache/tmp/{s}", .{tmp.sub_path[0..]});
+    const cache_root = try std.fmt.allocPrint(arena, "{s}/cache", .{tmp_prefix});
+    const root_path = try std.fmt.allocPrint(arena, "{s}/proj/build.zig.zon", .{tmp_prefix});
+
+    const tree = try resolver.resolve(arena, io, .{ .root = cache_root }, root_path);
+    var out: std.ArrayList(Finding) = .empty;
+    try scanTree(arena, io, tree, &out);
+
+    // Exactly one finding, from the imported helper (not the escaped file).
+    try testing.expectEqual(@as(usize, 1), out.items.len);
+    try testing.expectEqual(Code.cap_exec, out.items[0].code);
+    try testing.expectEqualStrings("imp", out.items[0].package);
+    try testing.expectEqualStrings("build/helpers.zig:3", out.items[0].location.?);
 }

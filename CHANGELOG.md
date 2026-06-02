@@ -13,6 +13,10 @@ All notable changes to this project are documented here. The format is based on
   and a hardcoded absolute path literal such as `/etc/...` or `C:\...` (info,
   reported under `cap_filesystem`). Alias-following is still out of scope, so the
   scan remains a "here is what to review" signal, not proof.
+- `--scan` now follows `@import` of sibling `.zig` files within a package, so a
+  capability moved out of `build.zig` into a helper file is still reported
+  (against that file's path). Import-following stays inside the package directory:
+  an `@import` that resolves outside it (via `../`) is not followed.
 
 ## [0.5.0] - 2026-06-02
 
