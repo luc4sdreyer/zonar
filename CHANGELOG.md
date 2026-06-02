@@ -6,6 +6,25 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-06-02
+
+### Added
+- `deprecated_name` finding (info): flags a package whose manifest declares
+  `.name` as a string literal (the pre-0.14 form). zonar still parses it
+  leniently, but a current Zig requires an enum literal and will not parse the
+  manifest, so the package is stale and cannot be re-fetched without an edit.
+
+### Changed
+- `--verify` now works **offline**. Instead of re-fetching each remote
+  dependency over the network, it recomputes the content hash of each cached
+  dependency by running `zig fetch` on its on-disk package directory and checks
+  it against the hash the package is filed under. A mismatch (`hash_mismatch`,
+  critical) means the cached content has been modified. Legacy `1220…` pins are
+  skipped (a current Zig computes a different format, already reported as
+  `legacy_hash`). It needs `zig` on PATH and a `build.zig` in the project; if
+  `zig fetch` cannot run it degrades to an info finding rather than a false
+  positive. This retires the previous network-based URL re-fetch.
+
 ## [0.3.0] - 2026-06-02
 
 ### Added
@@ -53,7 +72,8 @@ All notable changes to this project are documented here. The format is based on
 - Text tree and JSON output; importable library module.
 - Signed cross-platform release binaries (minisign) and GitHub Pages API docs.
 
-[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/luc4sdreyer/zonar/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/luc4sdreyer/zonar/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/luc4sdreyer/zonar/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/luc4sdreyer/zonar/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/luc4sdreyer/zonar/releases/tag/v0.1.0
