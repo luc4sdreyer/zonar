@@ -17,8 +17,8 @@ Three facts about Zig's package model shape this tool:
   hash, and is the hash the thing being trusted?"
 - **The cache already has everything.** Once dependencies are fetched they live
   under the global cache at `<cache>/p/<hash>/`, each with its own
-  `build.zig.zon`. The whole transitive tree can be resolved by reading files —
-  no network required.
+  `build.zig.zon`. The whole transitive tree can be resolved by reading files,
+  with no network needed.
 - **`build.zig` is code.** Every dependency's `build.zig` runs as unsandboxed
   code at configure time. Auditing what those scripts can do is the natural next
   step (see [Roadmap](#roadmap)).
@@ -74,8 +74,8 @@ as a CI gate.
 
 Every dependency's `build.zig` runs as unsandboxed code at configure time. With
 `--scan`, zonar parses each one with the compiler's own AST (`std.zig.Ast`) and
-reports what the script is *capable of* — executing processes, opening network
-connections, reading the environment or filesystem:
+reports what the script can do at configure time, such as running processes,
+opening network connections, or reading the environment and filesystem:
 
 ```
 zonar audit --scan — demo 0.1.0
@@ -92,7 +92,7 @@ Summary: 0 critical, 0 high, 2 low, 0 info
 Capabilities are a **report, not a verdict**. They are graded below `high` and
 never affect the exit code: a build script using `addSystemCommand` is suspicious
 to a human, but completely normal in many real projects. The scan is also
-intentionally shallow — it matches qualified names in the AST and cannot follow
+intentionally shallow. It matches qualified names in the AST and cannot follow
 aliasing (`const p = std.process;`) or reflection, so treat it as "here is what to
 review," never proof of anything.
 
@@ -114,14 +114,14 @@ Notes specific to Zig:
   masquerading in a `hashes`/`checksums` field.
 - Components use a `pkg:generic/<name>@<version>?download_url=...` package URL, since
   Zig has no registered PURL type.
-- Any findings from the same run ride along (e.g. an `unpinned` dependency becomes a
-  `zonar:finding:unpinned` property) — an SBOM that flags its own weak spots.
+- Any findings from the same run ride along. An `unpinned` dependency, for example,
+  becomes a `zonar:finding:unpinned` property, so the SBOM flags its own weak spots.
 - **CycloneDX output is reproducible** (no embedded timestamp or serial number), so it
   diffs cleanly in version control. SPDX requires a unique document namespace and a
   creation timestamp, so SPDX output is not byte-reproducible.
 
-The audit still runs in SBOM mode, so `--fail-on` (below) applies to the exit code —
-you can generate an SBOM and gate CI in one command.
+The audit still runs in SBOM mode, so `--fail-on` (below) applies to the exit code.
+You can generate an SBOM and gate CI in one command.
 
 ## What it checks
 
@@ -179,4 +179,4 @@ database (none exists to query for Zig yet).
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE).
