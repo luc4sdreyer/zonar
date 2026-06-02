@@ -32,6 +32,11 @@ try {
   if (Get-Command minisign -ErrorAction SilentlyContinue) {
     Write-Host "zonar: verifying signature"
     minisign -Vm "$tmp\$archive" -p "$tmp\minisign.pub"
+    # $ErrorActionPreference does not make native commands throw, so check the
+    # exit code explicitly and fail closed: never install an unverified archive.
+    if ($LASTEXITCODE -ne 0) {
+      throw "zonar: signature verification FAILED; refusing to install."
+    }
   } else {
     Write-Warning "zonar: minisign not installed; cannot verify the signature. Verify manually before trusting this binary."
   }
