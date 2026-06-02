@@ -90,17 +90,17 @@ instead: a tag is a mutable ref that can be repointed, and zonar would flag it a
 
 ## Compatibility
 
-zonar audits a `build.zig.zon` **statically** — it reads the manifest (and, for
+zonar audits a `build.zig.zon` statically: it reads the manifest (and, for
 `--scan`/`--verify`, the on-disk package cache) without invoking the target
 project's compiler. So the prebuilt `zonar` binary audits repositories built with
-**older Zig** too: it is verified against 0.13.x and 0.14.x manifests and handles
-the older shapes — a string `.name`, no `.fingerprint`, and the pre-0.14 `1220…`
-hashes (which it surfaces as `legacy_hash`). For the cache-dependent checks, point
+older Zig too. It is verified against 0.13.x and 0.14.x manifests and handles the
+older shapes: a string `.name`, no `.fingerprint`, and the pre-0.14 `1220…` hashes
+(which it surfaces as `legacy_hash`). For the cache-dependent checks, point
 `--cache` at the project's global cache (the `p/<hash>/` layout has been stable
 since Zig 0.12).
 
-**Building zonar from source and using it as a library (`@import("zonar")`)
-require Zig 0.16.** On an older toolchain, download the standalone binary from a
+Building zonar from source and using it as a library (`@import("zonar")`) require
+Zig 0.16. On an older toolchain, download the standalone binary from a
 [release](https://github.com/luc4sdreyer/zonar/releases) instead of depending on
 the module.
 
@@ -235,8 +235,8 @@ zig build docs            # API docs into zig-out/docs
 
 `tasks/integration-test.sh` audits a corpus of real `build.zig.zon` manifests
 (mach, ghostty, capy, zap) under `testdata/integration/`, pinned to upstream
-commits, and diffs zonar's JSON against committed goldens — offline, so it runs
-in CI. Regenerate the corpus from the pinned commits with
+commits, and diffs zonar's JSON against committed goldens. It runs offline, so it
+works in CI. Regenerate the corpus from the pinned commits with
 `tasks/refresh-integration-fixtures.sh`.
 
 The audit engine is also importable as a library module (`zonar`); the CLI is a
