@@ -9,8 +9,6 @@
 //! This is the library surface; the `zonar` binary (src/main.zig) is a thin CLI
 //! over these modules.
 
-const std = @import("std");
-
 pub const cache = @import("cache.zig");
 pub const manifest = @import("manifest.zig");
 pub const resolver = @import("resolver.zig");

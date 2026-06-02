@@ -105,5 +105,9 @@ test "packageDir joins cache root, p, and hash" {
 
     const cache: Cache = .{ .root = "/home/u/.cache/zig" };
     const dir = try cache.packageDir(arena, "nasm-2.16.1-2-BWdcABvF_jM1");
-    try testing.expectEqualStrings("/home/u/.cache/zig/p/nasm-2.16.1-2-BWdcABvF_jM1", dir);
+    // packageDir joins with the native path separator, so build the expected
+    // path the same way (this assertion runs on Windows too, where it's `\`).
+    const sep = std.fs.path.sep_str;
+    const expected = try std.mem.concat(arena, u8, &.{ "/home/u/.cache/zig", sep, "p", sep, "nasm-2.16.1-2-BWdcABvF_jM1" });
+    try testing.expectEqualStrings(expected, dir);
 }
