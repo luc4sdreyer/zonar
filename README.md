@@ -2,7 +2,8 @@
 
 A supply-chain auditor for the Zig package manager. It resolves your dependency
 tree straight from the on-disk package cache, checks that every dependency is
-pinned, and optionally re-verifies content hashes over the network.
+pinned, scans build scripts for risky capabilities, and exports an SBOM
+(CycloneDX / SPDX).
 
 > Requires **Zig 0.16**.
 
@@ -95,6 +96,33 @@ intentionally shallow — it matches qualified names in the AST and cannot follo
 aliasing (`const p = std.process;`) or reflection, so treat it as "here is what to
 review," never proof of anything.
 
+### SBOM export (`--sbom`)
+
+zonar can emit a Software Bill of Materials of the resolved dependency graph, in
+**CycloneDX 1.6** or **SPDX 2.3** (JSON):
+
+```sh
+zonar audit --sbom=cyclonedx > sbom.cdx.json
+zonar audit --sbom=spdx      > sbom.spdx.json
+```
+
+Notes specific to Zig:
+
+- A package's identity is its **content hash**, so that hash is used directly as the
+  CycloneDX `bom-ref`. It is *not* a standard SHA-256 digest, so it is carried as a
+  `zonar:zig-hash` property (CycloneDX) or the package comment (SPDX) rather than
+  masquerading in a `hashes`/`checksums` field.
+- Components use a `pkg:generic/<name>@<version>?download_url=...` package URL, since
+  Zig has no registered PURL type.
+- Any findings from the same run ride along (e.g. an `unpinned` dependency becomes a
+  `zonar:finding:unpinned` property) — an SBOM that flags its own weak spots.
+- **CycloneDX output is reproducible** (no embedded timestamp or serial number), so it
+  diffs cleanly in version control. SPDX requires a unique document namespace and a
+  creation timestamp, so SPDX output is not byte-reproducible.
+
+The audit still runs in SBOM mode, so `--fail-on` (below) applies to the exit code —
+you can generate an SBOM and gate CI in one command.
+
 ## What it checks
 
 | Finding | Severity | Meaning |
@@ -118,9 +146,11 @@ the weak spots and leaves the judgement to you.
 | Flag | Effect |
 | --- | --- |
 | `--json` | Emit the audit as JSON (`{ root, findings, summary }`) instead of a tree. |
+| `--sbom=<format>` | Emit an SBOM instead of a report. `format` is `cyclonedx` or `spdx`. |
 | `--scan` | Scan each dependency's `build.zig` for risky capabilities (exec, network, env, fs). |
 | `--verify` | Re-fetch remote dependencies with `zig fetch` and compare hashes. |
 | `--cache <dir>` | Override the global cache directory (defaults to `ZIG_GLOBAL_CACHE_DIR`, then `zig env`). |
+| `--fail-on=<level>` | Exit non-zero at this severity or above: `info`, `low`, `high` (default), `critical`, or `never`. |
 | `-h`, `--help` | Show help. |
 | `-v`, `--version` | Show version. |
 
@@ -136,12 +166,11 @@ thin layer over it.
 
 ## Roadmap
 
-Done: tree resolution, integrity checks, and the `--scan` `build.zig` capability
-scanner. Planned:
+Done: tree resolution, integrity checks, the `--scan` `build.zig` capability scanner,
+and `--sbom` export (CycloneDX / SPDX) with `--fail-on` CI gating. Planned:
 
 - **More capabilities** for `--scan`: `@embedFile` blobs, `@cImport`, absolute-path
   string literals, and following simple aliasing.
-- **SBOM export** in CycloneDX / SPDX.
 - A native re-implementation of Zig's content hashing (today `--verify` shells
   out to `zig fetch`).
 

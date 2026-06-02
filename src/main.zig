@@ -14,22 +14,47 @@ const usage =
     \\
     \\Options:
     \\  --json              Emit the audit as JSON instead of a tree
+    \\  --sbom=<format>     Emit an SBOM instead of a report (format: cyclonedx | spdx)
     \\  --scan              Scan each dependency's build.zig for risky capabilities
     \\  --verify            Re-fetch remote deps and verify content hashes (needs network)
     \\  --cache <dir>       Override the global package cache directory
+    \\  --fail-on=<level>   Exit non-zero at this severity or above
+    \\                      (info | low | high | critical | never; default: high)
     \\  -h, --help          Show this help
     \\  -v, --version       Show version
     \\
-    \\zonar exits non-zero when any finding is high severity or above.
-    \\
 ;
+
+const Sbom = enum { none, cyclonedx, spdx };
+
+const FailOn = enum {
+    info,
+    low,
+    high,
+    critical,
+    never,
+
+    /// Findings at this rank or above cause a non-zero exit. `never` is a rank
+    /// no finding can reach.
+    fn threshold(self: FailOn) u8 {
+        return switch (self) {
+            .info => zonar.Severity.info.rank(),
+            .low => zonar.Severity.low.rank(),
+            .high => zonar.Severity.high.rank(),
+            .critical => zonar.Severity.critical.rank(),
+            .never => std.math.maxInt(u8),
+        };
+    }
+};
 
 const Options = struct {
     path: []const u8 = "build.zig.zon",
     json: bool = false,
+    sbom: Sbom = .none,
     scan: bool = false,
     verify: bool = false,
     cache_override: ?[]const u8 = null,
+    fail_on: FailOn = .high,
 };
 
 const ParsedArgs = union(enum) {
@@ -89,6 +114,13 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
         if (std.mem.eql(u8, arg, "-v") or std.mem.eql(u8, arg, "--version")) return .version;
         if (std.mem.eql(u8, arg, "--json")) {
             opts.json = true;
+        } else if (std.mem.startsWith(u8, arg, "--sbom=")) {
+            opts.sbom = std.meta.stringToEnum(Sbom, arg["--sbom=".len..]) orelse
+                return .{ .@"error" = "--sbom must be one of: cyclonedx, spdx" };
+            if (opts.sbom == .none) return .{ .@"error" = "--sbom must be one of: cyclonedx, spdx" };
+        } else if (std.mem.startsWith(u8, arg, "--fail-on=")) {
+            opts.fail_on = std.meta.stringToEnum(FailOn, arg["--fail-on=".len..]) orelse
+                return .{ .@"error" = "--fail-on must be one of: info, low, high, critical, never" };
         } else if (std.mem.eql(u8, arg, "--scan")) {
             opts.scan = true;
         } else if (std.mem.eql(u8, arg, "--verify")) {
@@ -136,17 +168,22 @@ fn runAudit(
     var stdout_fw: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout = &stdout_fw.interface;
 
-    if (opts.json) {
-        try zonar.report.renderJson(stdout, tree, findings.items);
-    } else {
-        try zonar.report.renderText(arena, stdout, tree, findings.items);
+    switch (opts.sbom) {
+        .cyclonedx => try zonar.sbom.renderCycloneDx(arena, stdout, tree, findings.items),
+        .spdx => try zonar.sbom.renderSpdx(arena, io, stdout, tree, findings.items),
+        .none => if (opts.json)
+            try zonar.report.renderJson(stdout, tree, findings.items)
+        else
+            try zonar.report.renderText(arena, stdout, tree, findings.items),
     }
     try stdout.flush();
     _ = stderr;
 
+    // Exit code reflects the findings regardless of output format, so an SBOM run
+    // can still gate CI via --fail-on.
     const counts = zonar.report.Counts.tally(findings.items);
     if (counts.worst()) |w| {
-        if (w.rank() >= zonar.Severity.high.rank()) return 1;
+        if (w.rank() >= opts.fail_on.threshold()) return 1;
     }
     return 0;
 }
@@ -183,6 +220,25 @@ test "parseArgs surfaces --cache without value" {
     const args = [_][:0]const u8{ "zonar", "--cache" };
     const parsed = parseArgs(&args);
     try std.testing.expect(parsed == .@"error");
+}
+
+test "parseArgs reads --sbom and --fail-on" {
+    const parsed = parseArgs(&[_][:0]const u8{ "zonar", "--sbom=cyclonedx", "--fail-on=never" });
+    try std.testing.expect(parsed == .audit);
+    try std.testing.expectEqual(Sbom.cyclonedx, parsed.audit.sbom);
+    try std.testing.expectEqual(FailOn.never, parsed.audit.fail_on);
+}
+
+test "parseArgs defaults fail_on to high and sbom to none" {
+    const parsed = parseArgs(&[_][:0]const u8{"zonar"});
+    try std.testing.expectEqual(Sbom.none, parsed.audit.sbom);
+    try std.testing.expectEqual(FailOn.high, parsed.audit.fail_on);
+}
+
+test "parseArgs rejects bad --sbom and --fail-on values" {
+    try std.testing.expect(parseArgs(&[_][:0]const u8{ "zonar", "--sbom=junk" }) == .@"error");
+    try std.testing.expect(parseArgs(&[_][:0]const u8{ "zonar", "--sbom=none" }) == .@"error");
+    try std.testing.expect(parseArgs(&[_][:0]const u8{ "zonar", "--fail-on=bogus" }) == .@"error");
 }
 
 test "parseArgs recognizes help and version" {
