@@ -19,6 +19,8 @@ const usage =
     \\  --scan              Scan each dependency's build.zig for risky capabilities
     \\  --verify            Recompute cached deps' content hashes and check them (offline; needs zig)
     \\  --cache <dir>       Override the global package cache directory
+    \\  --baseline <file>   Suppress findings recorded in this baseline (gate on new only)
+    \\  --update-baseline   Write the current findings to --baseline and exit
     \\  --fail-on=<level>   Exit non-zero at this severity or above
     \\                      (info | low | high | critical | never; default: high)
     \\  -h, --help          Show this help
@@ -56,6 +58,8 @@ const Options = struct {
     scan: bool = false,
     verify: bool = false,
     cache_override: ?[]const u8 = null,
+    baseline: ?[]const u8 = null,
+    update_baseline: bool = false,
     fail_on: FailOn = .high,
 };
 
@@ -133,6 +137,12 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
             i += 1;
             if (i >= args.len) return .{ .@"error" = "--cache requires a directory argument" };
             opts.cache_override = args[i];
+        } else if (std.mem.eql(u8, arg, "--baseline")) {
+            i += 1;
+            if (i >= args.len) return .{ .@"error" = "--baseline requires a file argument" };
+            opts.baseline = args[i];
+        } else if (std.mem.eql(u8, arg, "--update-baseline")) {
+            opts.update_baseline = true;
         } else if (std.mem.eql(u8, arg, "audit") and i == 1) {
             // Accept an explicit `audit` subcommand.
             continue;
@@ -143,6 +153,9 @@ fn parseArgs(args: []const [:0]const u8) ParsedArgs {
             opts.path = arg;
             saw_path = true;
         }
+    }
+    if (opts.update_baseline and opts.baseline == null) {
+        return .{ .@"error" = "--update-baseline requires --baseline <file>" };
     }
     return .{ .audit = opts };
 }
@@ -171,30 +184,68 @@ fn runAudit(
         try zonar.verify.verifyTree(arena, io, project_dir, tree, &findings);
     }
 
+    // Apply the baseline: either snapshot the current findings, or suppress the
+    // already-accepted ones so only new findings are reported and gate CI.
+    var findings_slice: []const zonar.Finding = findings.items;
+    if (opts.baseline) |bpath| {
+        if (opts.update_baseline) {
+            try writeBaseline(arena, io, bpath, findings.items);
+            try stderr.print("wrote {d} finding(s) to baseline {s}\n", .{ findings.items.len, bpath });
+            try stderr.flush();
+            return 0;
+        }
+        const source = std.Io.Dir.cwd().readFileAllocOptions(io, bpath, arena, .unlimited, .of(u8), 0) catch {
+            try stderr.print("error: could not read baseline '{s}' (create it with --update-baseline)\n", .{bpath});
+            try stderr.flush();
+            return 2;
+        };
+        var bl = zonar.baseline.Baseline.load(arena, source) catch {
+            try stderr.print("error: baseline '{s}' is malformed\n", .{bpath});
+            try stderr.flush();
+            return 2;
+        };
+        const before = findings.items.len;
+        findings_slice = try bl.suppress(arena, findings.items);
+        const suppressed = before - findings_slice.len;
+        const stale = bl.staleCount();
+        if (suppressed > 0 or stale > 0) {
+            try stderr.print("baseline: {d} finding(s) suppressed", .{suppressed});
+            if (stale > 0) try stderr.print(", {d} stale entr{s} (run --update-baseline to prune)", .{ stale, if (stale == 1) "y" else "ies" });
+            try stderr.writeByte('\n');
+            try stderr.flush();
+        }
+    }
+
     var stdout_buffer: [4096]u8 = undefined;
     var stdout_fw: Io.File.Writer = .init(.stdout(), io, &stdout_buffer);
     const stdout = &stdout_fw.interface;
 
     switch (opts.sbom) {
-        .cyclonedx => try zonar.sbom.renderCycloneDx(arena, stdout, tree, findings.items),
-        .spdx => try zonar.sbom.renderSpdx(arena, io, stdout, tree, findings.items),
+        .cyclonedx => try zonar.sbom.renderCycloneDx(arena, stdout, tree, findings_slice),
+        .spdx => try zonar.sbom.renderSpdx(arena, io, stdout, tree, findings_slice),
         .none => if (opts.sarif)
-            try zonar.sarif.renderSarif(arena, stdout, opts.path, findings.items)
+            try zonar.sarif.renderSarif(arena, stdout, opts.path, findings_slice)
         else if (opts.json)
-            try zonar.report.renderJson(stdout, tree, findings.items)
+            try zonar.report.renderJson(stdout, tree, findings_slice)
         else
-            try zonar.report.renderText(arena, stdout, tree, findings.items),
+            try zonar.report.renderText(arena, stdout, tree, findings_slice),
     }
     try stdout.flush();
-    _ = stderr;
 
     // Exit code reflects the findings regardless of output format, so an SBOM run
     // can still gate CI via --fail-on.
-    const counts = zonar.report.Counts.tally(findings.items);
+    const counts = zonar.report.Counts.tally(findings_slice);
     if (counts.worst()) |w| {
         if (w.rank() >= opts.fail_on.threshold()) return 1;
     }
     return 0;
+}
+
+/// Write the current `findings` to the baseline file at `path` (JSON, sorted).
+fn writeBaseline(arena: std.mem.Allocator, io: Io, path: []const u8, findings: []const zonar.Finding) !void {
+    var aw: Io.Writer.Allocating = .init(arena);
+    try zonar.baseline.serialize(arena, &aw.writer, findings);
+    try std.Io.Dir.cwd().writeFile(io, .{ .sub_path = path, .data = aw.written() });
 }
 
 /// Map an audit error to a message that points the user at the likely cause.
@@ -230,6 +281,21 @@ test "parseArgs reads --sarif" {
     try std.testing.expect(parsed == .audit);
     try std.testing.expect(parsed.audit.sarif);
     try std.testing.expect(!parsed.audit.json);
+}
+
+test "parseArgs reads --baseline and --update-baseline" {
+    const parsed = parseArgs(&[_][:0]const u8{ "zonar", "--baseline", "zonar-baseline.json", "--update-baseline" });
+    try std.testing.expect(parsed == .audit);
+    try std.testing.expectEqualStrings("zonar-baseline.json", parsed.audit.baseline.?);
+    try std.testing.expect(parsed.audit.update_baseline);
+}
+
+test "parseArgs rejects --update-baseline without --baseline" {
+    try std.testing.expect(parseArgs(&[_][:0]const u8{ "zonar", "--update-baseline" }) == .@"error");
+}
+
+test "parseArgs surfaces --baseline without value" {
+    try std.testing.expect(parseArgs(&[_][:0]const u8{ "zonar", "--baseline" }) == .@"error");
 }
 
 test "parseArgs surfaces --cache without value" {
