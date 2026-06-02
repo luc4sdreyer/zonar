@@ -69,10 +69,15 @@ jobs:
         with:
           version: 0.16.0
       - run: zig build
-      - name: Generate zonar's own SBOMs
+      - name: Generate SBOMs from a multi-dependency fixture
+        # The fixture exercises components, dependency edges, and findings-as-
+        # properties (a zero-dep SBOM would only cover the document skeleton).
+        # `--fail-on=never` so the deliberate findings don't make the step exit
+        # non-zero before the SBOM is written.
         run: |
-          ./zig-out/bin/zonar audit --sbom=cyclonedx > bom.cdx.json
-          ./zig-out/bin/zonar audit --sbom=spdx > bom.spdx.json
+          args="testdata/sbom/proj/build.zig.zon --cache testdata/sbom/cache --scan --fail-on=never"
+          ./zig-out/bin/zonar audit $args --sbom=cyclonedx > bom.cdx.json
+          ./zig-out/bin/zonar audit $args --sbom=spdx > bom.spdx.json
       - name: Validate CycloneDX (pinned + checksum-verified)
         run: |
           curl -fsSL -o cyclonedx \
@@ -81,5 +86,5 @@ jobs:
             | sha256sum -c -
           chmod +x cyclonedx
           ./cyclonedx validate --input-file bom.cdx.json --input-format json --fail-on-errors
-      - name: Validate SPDX
-        run: pipx run --spec spdx-tools pyspdxtools -i bom.spdx.json
+      - name: Validate SPDX (pinned)
+        run: pipx run --spec 'spdx-tools==0.8.5' pyspdxtools -i bom.spdx.json

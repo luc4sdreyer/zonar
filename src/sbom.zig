@@ -465,6 +465,26 @@ test "CycloneDX output is reproducible" {
     try testing.expectEqualStrings(a1.written(), a2.written());
 }
 
+test "SBOM reports the build-injected tool version (no drift)" {
+    // Guards the wiring: tool_version must come from build_options, not a literal.
+    // We don't assert a specific number (that would couple to the release), only
+    // that it is the same non-empty string the binary is built with.
+    try testing.expect(tool_version.len > 0);
+    try testing.expectEqualStrings("zonar", tool_name);
+
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    var aw: Writer.Allocating = .init(arena);
+    try renderCycloneDx(arena, &aw.writer, sampleTree(), &.{});
+    const parsed = try std.json.parseFromSlice(std.json.Value, arena, aw.written(), .{});
+    const tool = parsed.value.object.get("metadata").?.object.get("tools").?
+        .object.get("components").?.array.items[0].object;
+    try testing.expectEqualStrings("zonar", tool.get("name").?.string);
+    try testing.expectEqualStrings(tool_version, tool.get("version").?.string);
+}
+
 test "SPDX is well-formed with required fields and DEPENDS_ON" {
     var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
     defer arena_state.deinit();
