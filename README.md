@@ -65,6 +65,28 @@ cd zonar
 zig build         # produces zig-out/bin/zonar
 ```
 
+## Use as a library
+
+The audit engine is exposed as a `zonar` module, so you can embed the resolver,
+integrity checks, scanner, and SBOM export in your own `build.zig`. Add it as a
+dependency by fetching the signed source tarball from a release:
+
+```sh
+zig fetch --save https://github.com/luc4sdreyer/zonar/releases/download/v0.2.0/zonar-v0.2.0.tar.gz
+```
+
+Then wire it into your `build.zig`:
+
+```zig
+const zonar = b.dependency("zonar", .{});
+exe.root_module.addImport("zonar", zonar.module("zonar"));
+```
+
+`zig fetch --save` records the dependency by its **content hash** in your
+`build.zig.zon`, which is immutable. Don't depend on `git+https://…#v0.2.0`
+instead: a tag is a mutable ref that can be repointed, and zonar would flag it as
+`mutable_ref` (the whole reason this tool exists).
+
 ## Usage
 
 ```sh

@@ -2,3 +2,9 @@
 .zig-global-cache/
 zig-out/
 *.o
+
+# Local artifacts (downloaded release assets, `zig fetch` extraction).
+/zonar-*.tar.gz
+/zonar-*.zip
+*.minisig
+/zig-pkg/

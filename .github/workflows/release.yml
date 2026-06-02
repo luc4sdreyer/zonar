@@ -37,10 +37,11 @@ jobs:
           )
           mkdir -p dist
           printf '%s' "$MINISIGN_SECRET_KEY" > minisign.key
+          version="${GITHUB_REF_NAME#v}"
           for t in "${targets[@]}"; do
             echo "::group::$t"
             rm -rf zig-out
-            zig build -Dtarget="$t" -Doptimize=ReleaseSafe
+            zig build -Dtarget="$t" -Doptimize=ReleaseSafe -Dversion="$version"
             name="zonar-${t}"
             if [[ "$t" == *windows* ]]; then
               (cd zig-out/bin && zip -q "${GITHUB_WORKSPACE}/dist/${name}.zip" zonar.exe)
@@ -53,6 +54,12 @@ jobs:
             minisign -S -s minisign.key -m "$archive"
             echo "::endgroup::"
           done
+          # Source tarball for library consumers (`zig fetch --save <url>`), signed
+          # like the binaries. Zig hashes only the build.zig.zon `paths`, so the
+          # extra tracked files in the archive don't affect the package hash.
+          git archive --format=tar.gz --prefix="zonar-${GITHUB_REF_NAME}/" HEAD \
+            -o "dist/zonar-${GITHUB_REF_NAME}.tar.gz"
+          minisign -S -s minisign.key -m "dist/zonar-${GITHUB_REF_NAME}.tar.gz"
           rm -f minisign.key
           # Publish the public key alongside the artifacts for convenience (the
           # trust root is the copy committed in the repo, not this one).

@@ -4,11 +4,21 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
+    // Version: single source of truth is build.zig.zon, overridable at release
+    // time with `-Dversion=<tag>` so `zonar --version` always matches the release.
+    const default_version = @import("build.zig.zon").version;
+    const version = b.option([]const u8, "version", "Override the version string") orelse default_version;
+    const options = b.addOptions();
+    options.addOption([]const u8, "version", version);
+
     // The library module: the audit engine, importable by consumers and by the CLI.
     const mod = b.addModule("zonar", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
     });
+    // The library reports its own version in SBOM output, so it carries the
+    // version too (consumers get zonar's version baked in).
+    mod.addOptions("build_options", options);
 
     // The CLI executable.
     const exe = b.addExecutable(.{
@@ -51,6 +61,7 @@ pub fn build(b: *std.Build) void {
             .optimize = optimize,
         }),
     });
+    docs_lib.root_module.addOptions("build_options", options);
     const install_docs = b.addInstallDirectory(.{
         .source_dir = docs_lib.getEmittedDocs(),
         .install_dir = .prefix,

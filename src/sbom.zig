@@ -27,7 +27,7 @@ const json = @import("json.zig");
 const Finding = integrity.Finding;
 
 const tool_name = "zonar";
-const tool_version = "0.1.0";
+const tool_version = @import("build_options").version;
 
 const Component = struct {
     name: []const u8,
