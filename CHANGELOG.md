@@ -6,6 +6,22 @@ All notable changes to this project are documented here. The format is based on
 
 ## [Unreleased]
 
+### Fixed
+- `--scan` false positives, both found by auditing the top ~100 real Zig
+  packages. (1) A capability needle matched against the source of a compound
+  `field_access` (an inline `struct { fn make() { std.fs.cwd()... } }.make` build
+  step), so the call buried inside the struct was reported a second time with the
+  whole multi-line expression as the message. The scanner now skips a node whose
+  source spans a brace or newline; the real call is still caught by its own inner
+  node. (2) Absolute-path literal detection flagged separator-prefixed
+  concatenation fragments (`jolt ++ "/Physics/Body/Body.cpp"`, `sdk ++
+  "/include"`), which a bare string literal cannot be told apart from a real
+  absolute path. It now anchors POSIX paths to a known system root (`/usr/`,
+  `/opt/`, `/etc/`, `/System/`, `/Library/`, `/Applications/`, and the like), so
+  it keeps the genuine cases (a build script hardcoding `/opt/homebrew` or
+  `/System/Library/Frameworks`) and drops the joins. Across the corpus this cut
+  `cap_filesystem` from 239 findings (213 of them noise) to 45, all legitimate.
+
 ## [0.6.0] - 2026-06-03
 
 ### Added

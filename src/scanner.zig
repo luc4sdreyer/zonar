@@ -190,16 +190,37 @@ fn unquote(raw: []const u8) ?[]const u8 {
     return raw[1 .. raw.len - 1];
 }
 
-/// If `raw` (a quoted string-literal token, quotes included) looks like an
-/// absolute filesystem path, return the inner path; otherwise null. The
-/// heuristic is a leading `/` (POSIX) or an `X:\` / `X:/` drive prefix
-/// (Windows). A relative path, a URL (`https://...`), or a format string does
-/// not match because none of them start that way.
+/// Absolute filesystem roots a build script has no business hardcoding: they
+/// assume a specific machine layout or reach outside the build sandbox. A POSIX
+/// literal must begin with one of these (with a separator) to count. The leading
+/// `/` alone is not enough, because build scripts constantly build paths by
+/// concatenation (`sdk_root ++ "/include"`, `jolt ++ "/Physics/Body/Body.cpp"`),
+/// and such a separator-prefixed suffix is indistinguishable from a real
+/// absolute path. Anchoring on a known system root keeps the genuine cases
+/// (`/usr/include`, `/System/Library/Frameworks`) and drops the joins.
+const system_roots = [_][]const u8{
+    "/usr/",    "/etc/",     "/opt/",   "/var/",     "/home/",
+    "/root/",   "/bin/",     "/sbin/",  "/lib/",     "/lib64/",
+    "/boot/",   "/dev/",     "/proc/",  "/sys/",     "/run/",
+    "/tmp/",    "/mnt/",     "/media/", "/srv/",     "/private/",
+    "/System/", "/Library/", "/Users/", "/Volumes/", "/Applications/",
+};
+
+/// If `raw` (a quoted string-literal token, quotes included) is a hardcoded
+/// absolute filesystem path, return the inner path; otherwise null. POSIX paths
+/// must start with a known `system_root`; a Windows drive prefix (`X:\` / `X:/`)
+/// is unambiguous on its own. A relative path, a URL (`https://...`), a format
+/// string, or a separator-prefixed concatenation fragment does not match.
 fn absolutePathLiteral(raw: []const u8) ?[]const u8 {
     const inner = unquote(raw) orelse return null;
     if (inner.len == 0) return null;
-    if (inner[0] == '/') return inner;
-    if (inner.len >= 3 and std.ascii.isAlphabetic(inner[0]) and inner[1] == ':' and
+    if (inner[0] == '/') {
+        for (system_roots) |root| {
+            if (std.mem.startsWith(u8, inner, root)) return inner;
+        }
+        return null;
+    }
+    if (inner.len > 3 and std.ascii.isAlphabetic(inner[0]) and inner[1] == ':' and
         (inner[2] == '\\' or inner[2] == '/')) return inner;
     return null;
 }
@@ -248,6 +269,14 @@ pub fn scanSource(
         if (ast.nodeTag(idx) != .field_access) continue;
 
         const src = ast.getNodeSource(idx);
+        // A real capability call is a simple dotted name like `std.fs.cwd`. If
+        // the node's source spans a brace or newline, its left-hand side is a
+        // compound expression (for example an anonymous `struct { fn make(){
+        // std.fs.cwd()... } }.make`), and any capability buried inside it is
+        // already matched by its own inner `field_access` node. Matching a
+        // needle against this outer slice would misreport the location and dump
+        // the whole multi-line expression as the message, so skip it.
+        if (std.mem.indexOfAny(u8, src, "{}\n") != null) continue;
         for (table) |p| {
             if (std.mem.indexOf(u8, src, p.needle) == null) continue;
             const line = ast.tokenLocation(0, ast.firstToken(idx)).line + 1;
@@ -453,12 +482,62 @@ test "flags absolute-path string literals but not relative paths or urls" {
 
 test "absolutePathLiteral heuristic" {
     try testing.expectEqualStrings("/etc/passwd", absolutePathLiteral("\"/etc/passwd\"").?);
+    try testing.expectEqualStrings("/usr/include", absolutePathLiteral("\"/usr/include\"").?);
     try testing.expectEqualStrings("C:\\Windows", absolutePathLiteral("\"C:\\Windows\"").?);
     try testing.expectEqualStrings("D:/data", absolutePathLiteral("\"D:/data\"").?);
     try testing.expect(absolutePathLiteral("\"./relative\"") == null);
     try testing.expect(absolutePathLiteral("\"vendor/include\"") == null);
     try testing.expect(absolutePathLiteral("\"https://example.com\"") == null);
     try testing.expect(absolutePathLiteral("\"\"") == null);
+    // Real system paths anchor on a known root and count.
+    try testing.expectEqualStrings("/opt/homebrew/lib", absolutePathLiteral("\"/opt/homebrew/lib\"").?);
+    try testing.expectEqualStrings("/System/Library/Frameworks", absolutePathLiteral("\"/System/Library/Frameworks\"").?);
+    // Separator-prefixed concatenation fragments do not, even when multi-segment:
+    // a relative source-file list like `jolt ++ "/Physics/Body/Body.cpp"` must
+    // not be mistaken for an absolute path.
+    try testing.expect(absolutePathLiteral("\"/Physics/Body/Body.cpp\"") == null);
+    try testing.expect(absolutePathLiteral("\"/Core/Memory.cpp\"") == null);
+    try testing.expect(absolutePathLiteral("\"/toolchains/llvm/prebuilt\"") == null);
+    try testing.expect(absolutePathLiteral("\"/include\"") == null);
+    try testing.expect(absolutePathLiteral("\"/\"") == null);
+    try testing.expect(absolutePathLiteral("\"C:\\\"") == null);
+}
+
+test "a capability buried in a struct-literal step is reported once, cleanly" {
+    var arena_state = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena_state.deinit();
+    const arena = arena_state.allocator();
+
+    // A real-world shape (zig-clap does this): a custom build step whose `make`
+    // body calls std.fs.cwd(), defined inline as `struct { fn make()... }.make`.
+    // The outer `.make` field_access spans the whole struct, so the old scanner
+    // matched `fs.cwd` against that giant slice and emitted a second finding
+    // with a multi-line garbage message. Only the inner std.fs.cwd should count.
+    var out: std.ArrayList(Finding) = .empty;
+    const src =
+        \\const std = @import("std");
+        \\pub fn build(b: *std.Build) void {
+        \\    _ = b;
+        \\    const step = struct {
+        \\        fn make(_: *std.Build.Step, _: std.Build.Step.MakeOptions) anyerror!void {
+        \\            const f = try std.fs.cwd().createFile("README.md", .{});
+        \\            _ = f;
+        \\        }
+        \\    }.make;
+        \\    _ = step;
+        \\}
+    ;
+    try scanSource(arena, "clap", "build.zig", src, &out, null);
+
+    var fs_count: usize = 0;
+    for (out.items) |f| {
+        if (f.code == .cap_filesystem) {
+            fs_count += 1;
+            // The message must be the qualified call, not a multi-line dump.
+            try testing.expect(std.mem.indexOfAny(u8, f.message, "{}\n") == null);
+        }
+    }
+    try testing.expectEqual(@as(usize, 1), fs_count);
 }
 
 test "nested field access on one line yields a single finding" {
